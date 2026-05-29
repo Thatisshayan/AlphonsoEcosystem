@@ -3,6 +3,7 @@ import {
   Activity,
   AlertTriangle,
   Brain,
+  MessageCircle,
   CheckCircle2,
   ClipboardList,
   Crown,
@@ -46,6 +47,7 @@ import {
 } from '../services/joseCommandRouterService';
 import { executeApprovedPacket } from '../services/packetExecutionService';
 import { TRUST_STATES } from '../services/trustModel';
+import { isConnectorAuthenticated, listConnectorAudit, pollWhatsAppConnector } from '../services/connectorRegistryService';
 import { getOrchestrationQueueSnapshot, listOrchestrationQueueTransitions, replayPacketFromDeadLetter } from '../services/orchestrationQueueService';
 import { AgentAvatar } from './AgentAvatar';
 
@@ -69,6 +71,9 @@ export function OrchestratorView({
   const [deadLetters, setDeadLetters] = useState(() => listJoseDeadLetters());
   const [queueSnapshot, setQueueSnapshot] = useState(() => getOrchestrationQueueSnapshot());
   const [queueTransitions, setQueueTransitions] = useState(() => listOrchestrationQueueTransitions().slice(0, 80));
+  const [whatsappAudit, setWhatsappAudit] = useState(() => listConnectorAudit().filter((e) => e.connectorId === 'whatsapp').slice(-30).reverse());
+  const [whatsappPolling, setWhatsappPolling] = useState(false);
+  const whatsappConfigured = isConnectorAuthenticated('whatsapp');
 
   const approvalQueue = useMemo(() => listApprovalQueue(), [packets]);
   const workload = useMemo(() => summarizeAgentWorkload(packets), [packets]);
@@ -91,6 +96,18 @@ export function OrchestratorView({
     setDeadLetters(listJoseDeadLetters());
     setQueueSnapshot(getOrchestrationQueueSnapshot());
     setQueueTransitions(listOrchestrationQueueTransitions().slice(0, 80));
+    setWhatsappAudit(listConnectorAudit().filter((e) => e.connectorId === 'whatsapp').slice(-30).reverse());
+  };
+
+  const pollWhatsAppNow = async () => {
+    if (whatsappPolling) return;
+    setWhatsappPolling(true);
+    try {
+      await pollWhatsAppConnector(12);
+      refreshAll();
+    } catch { /* best-effort */ } finally {
+      setWhatsappPolling(false);
+    }
   };
 
   useEffect(() => {
@@ -321,6 +338,77 @@ export function OrchestratorView({
               <FlowStep label="5" text="Jose reports the result back to Shayan, including a verified URL only when one exists." />
             </div>
           </div>
+        </div>
+      </Panel>
+
+      <Panel icon={MessageCircle} title="WhatsApp Inbound">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className={`h-2 w-2 rounded-full ${whatsappConfigured ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+              <span className="text-xs text-zinc-400">{whatsappConfigured ? 'Connector configured — polling active' : 'Connector not configured — set env vars in Settings'}</span>
+            </div>
+            <button
+              onClick={pollWhatsAppNow}
+              disabled={!whatsappConfigured || whatsappPolling}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 bg-zinc-900 text-[10px] font-bold uppercase tracking-widest text-zinc-300 hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <RefreshCw className={`w-3 h-3 ${whatsappPolling ? 'animate-spin' : ''}`} />
+              {whatsappPolling ? 'Polling...' : 'Poll Now'}
+            </button>
+          </div>
+
+          {whatsappAudit.length === 0 ? (
+            <div className="rounded-xl border border-white/[0.04] bg-zinc-900/40 px-4 py-6 text-center text-xs text-zinc-600">
+              No WhatsApp activity yet. Messages routed from WhatsApp will appear here.
+            </div>
+          ) : (
+            <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+              {whatsappAudit.map((entry, i) => {
+                const isRoute = entry.action?.includes('routed') || entry.action?.includes('distributed');
+                const isReject = entry.action?.includes('rejected') || entry.action?.includes('failed') || entry.action?.includes('missing');
+                const color = isReject ? 'border-red-500/20 bg-red-900/10' : isRoute ? 'border-emerald-500/20 bg-emerald-900/10' : 'border-white/[0.04] bg-zinc-900/40';
+                const dot = isReject ? 'bg-red-400' : isRoute ? 'bg-emerald-400' : 'bg-zinc-500';
+                return (
+                  <div key={entry.id || i} className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 ${color}`}>
+                    <div className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">{entry.action || 'event'}</span>
+                        <span className="text-[10px] text-zinc-600">{new Date(entry.timestampMs || 0).toLocaleTimeString()}</span>
+                      </div>
+                      {entry.details?.packetId && (
+                        <div className="text-[11px] text-zinc-500 truncate mt-0.5">Packet: {entry.details.packetId}</div>
+                      )}
+                      {entry.details?.commandId && (
+                        <div className="text-[11px] text-emerald-400 truncate">→ Jose command: {entry.details.commandId}</div>
+                      )}
+                      {entry.details?.error && (
+                        <div className="text-[11px] text-red-400 truncate">{entry.details.error}</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {approvalQueue.filter((p) => p.payload?.source === 'whatsapp' || p.fromConnector === 'whatsapp').length > 0 && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-900/10 p-3 space-y-2">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-amber-400">Pending Approval — WhatsApp sourced</div>
+              {approvalQueue.filter((p) => p.payload?.source === 'whatsapp' || p.fromConnector === 'whatsapp').map((packet) => (
+                <div key={packet.id} className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-zinc-300 truncate">{packet.title}</span>
+                  <div className="flex gap-2 shrink-0">
+                    <button onClick={() => { approvePacket(packet.id); refreshAll(); }}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold transition-colors">Approve</button>
+                    <button onClick={() => { rejectPacket(packet.id, 'Denied from OrchestratorView inbound panel'); refreshAll(); }}
+                      className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-red-900/40 text-zinc-300 hover:text-red-300 text-[10px] font-bold transition-colors">Deny</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </Panel>
 

@@ -32,7 +32,7 @@ import { GOVERNANCE_SCOPE } from './services/orchestrationGovernanceService';
 import { ORCHESTRATION_RECEIPT_SCOPE } from './services/orchestrationReceiptService';
 import { ORCHESTRATION_QUEUE_SCOPE } from './services/orchestrationQueueService';
 import { VERIFICATION_SCOPE } from './services/verificationService';
-import { CONNECTOR_SCOPE, CONNECTOR_AUDIT_SCOPE, CONNECTOR_AUTH_SCOPE } from './services/connectorRegistryService';
+import { CONNECTOR_SCOPE, CONNECTOR_AUDIT_SCOPE, CONNECTOR_AUTH_SCOPE, isConnectorAuthenticated, pollWhatsAppConnector } from './services/connectorRegistryService';
 import { MIYA_MEMORY_SCOPE } from './services/miyaMemoryService';
 import { PLUGINS_SCOPE, PLUGIN_AUDIT_SCOPE } from './services/pluginRegistryService';
 import { PRODUCTION_READINESS_SCOPE } from './services/productionReadinessService';
@@ -1065,6 +1065,36 @@ export default function App() {
     schedule(ollamaStatus.state === 'connected' ? CONNECTED_INTERVAL : BACKOFF[0]);
     return () => window.clearTimeout(timeoutId);
   }, [runOllamaCheck]);
+
+  useEffect(() => {
+    if (isCoachWindow) return;
+    let cancelled = false;
+    let timeoutId = null;
+
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        if (isConnectorAuthenticated('whatsapp')) {
+          const result = await pollWhatsAppConnector(12);
+          if (!cancelled && result?.routed > 0) {
+            toast.info(
+              `WhatsApp — ${result.routed} message${result.routed > 1 ? 's' : ''} routed to Jose`,
+              `${result.rejected > 0 ? `${result.rejected} rejected (not on allowlist). ` : ''}Check Orchestrator for approvals.`
+            );
+          }
+        }
+      } catch { /* best-effort */ }
+      if (!cancelled) {
+        timeoutId = window.setTimeout(poll, 30000);
+      }
+    };
+
+    timeoutId = window.setTimeout(poll, 5000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [isCoachWindow]);
 
   useEffect(() => {
     if (!operatorMode) return undefined;
