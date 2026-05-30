@@ -5,8 +5,8 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
-    "startCommand": "npm run start",
-    "healthcheckPath": "/",
+    "startCommand": "node scripts/serve-static.mjs",
+    "healthcheckPath": "/health",
     "healthcheckTimeout": 120
   }
 }
