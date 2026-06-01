@@ -16,7 +16,7 @@ use tauri_plugin_updater::UpdaterExt;
 mod native_proof;
 mod runway;
 use native_proof::{run_native_rc0_proof, start_native_rc0_proof_if_requested};
-use runway::runway_generate_video;
+use runway::{runway_generate_video, runway_list_pending_jobs, runway_resume_task};
 
 const MEMORY_SCHEMA_VERSION: u32 = 2;
 const MEMORY_SCHEMA_INIT_MIGRATION_ID: &str = "memory_schema_init_v1";
@@ -1000,8 +1000,75 @@ fn initialize_memory_schema(conn: &Connection) -> Result<u32, String> {
 fn open_memory_db(app: &tauri::AppHandle) -> Result<(Connection, PathBuf), String> {
   let path = memory_db_path(app)?;
   let conn = Connection::open(&path).map_err(|error| error.to_string())?;
+  // WAL mode: allows concurrent reads during writes, prevents UI freeze on memory writes.
+  // PRAGMA synchronous=NORMAL is safe with WAL and gives a solid durability/performance balance.
+  conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
+    .map_err(|error| format!("WAL pragma failed: {}", error))?;
   initialize_memory_schema(&conn)?;
   Ok((conn, path))
+}
+
+fn ensure_kv_table(conn: &Connection) -> Result<(), String> {
+  conn.execute_batch(
+    "CREATE TABLE IF NOT EXISTS kv_store (
+       key   TEXT PRIMARY KEY,
+       value TEXT NOT NULL,
+       updated_at INTEGER NOT NULL DEFAULT 0
+     );"
+  ).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn kv_set(app: tauri::AppHandle, key: String, value: String) -> Result<(), String> {
+  let (conn, _) = open_memory_db(&app)?;
+  ensure_kv_table(&conn)?;
+  let now = now_ms() as i64;
+  conn.execute(
+    "INSERT INTO kv_store (key, value, updated_at) VALUES (?1, ?2, ?3)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    params![key, value, now],
+  ).map_err(|e| e.to_string())?;
+  Ok(())
+}
+
+#[tauri::command]
+fn kv_get(app: tauri::AppHandle, key: String) -> Result<Option<String>, String> {
+  let (conn, _) = open_memory_db(&app)?;
+  ensure_kv_table(&conn)?;
+  match conn.query_row("SELECT value FROM kv_store WHERE key = ?1 LIMIT 1", params![key], |row| row.get::<_, String>(0)) {
+    Ok(v) => Ok(Some(v)),
+    Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+    Err(e) => Err(e.to_string()),
+  }
+}
+
+#[tauri::command]
+fn save_settings(app: tauri::AppHandle, settings_json: String) -> Result<(), String> {
+  let (conn, _) = open_memory_db(&app)?;
+  ensure_kv_table(&conn)?;
+  let now = now_ms() as i64;
+  conn.execute(
+    "INSERT INTO kv_store (key, value, updated_at) VALUES ('app_settings', ?1, ?2)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    params![settings_json, now],
+  ).map_err(|e| e.to_string())?;
+  Ok(())
+}
+
+#[tauri::command]
+fn load_settings(app: tauri::AppHandle) -> Result<Option<String>, String> {
+  let (conn, _) = open_memory_db(&app)?;
+  ensure_kv_table(&conn)?;
+  let result = conn.query_row(
+    "SELECT value FROM kv_store WHERE key = 'app_settings' LIMIT 1",
+    [],
+    |row| row.get::<_, String>(0),
+  );
+  match result {
+    Ok(v) => Ok(Some(v)),
+    Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+    Err(e) => Err(e.to_string()),
+  }
 }
 
 fn unix_now_iso() -> String {
@@ -1475,6 +1542,7 @@ fn webhook_host_from_url(webhook_url: &str) -> Option<String> {
 
 #[tauri::command]
 async fn connector_poll_telegram(
+  http_client: tauri::State<'_, reqwest::Client>,
   app: tauri::AppHandle,
   limit: Option<u8>,
 ) -> Result<ConnectorPollProof, String> {
@@ -1497,11 +1565,7 @@ async fn connector_poll_telegram(
 
   let current_cursor = read_connector_cursor(&app, "telegram");
   let max_limit = limit.unwrap_or(10).clamp(1, 50);
-  let client = reqwest::Client::builder()
-    .timeout(Duration::from_secs(15))
-    .user_agent("Alphonso-Telegram-Bridge/0.1")
-    .build()
-    .map_err(|error| error.to_string())?;
+  let client = http_client.inner();
   let endpoint = format!("https://api.telegram.org/bot{}/getUpdates", token);
 
   let mut query: Vec<(String, String)> = vec![
@@ -1609,7 +1673,11 @@ async fn connector_poll_telegram(
 }
 
 #[tauri::command]
-async fn connector_send_telegram(chat_id: String, text: String) -> Result<ConnectorSendProof, String> {
+async fn connector_send_telegram(
+  http_client: tauri::State<'_, reqwest::Client>,
+  chat_id: String,
+  text: String,
+) -> Result<ConnectorSendProof, String> {
   let sent_at_ms = now_ms();
   let token = std::env::var("TELEGRAM_BOT_TOKEN")
     .map(|value| value.trim().to_string())
@@ -1640,11 +1708,7 @@ async fn connector_send_telegram(chat_id: String, text: String) -> Result<Connec
     });
   }
 
-  let client = reqwest::Client::builder()
-    .timeout(Duration::from_secs(15))
-    .user_agent("Alphonso-Telegram-Bridge/0.1")
-    .build()
-    .map_err(|error| error.to_string())?;
+  let client = http_client.inner();
   let endpoint = format!("https://api.telegram.org/bot{}/sendMessage", token);
   let payload = serde_json::json!({
     "chat_id": clean_target,
@@ -2508,7 +2572,10 @@ fn normalize_whatsapp_cloud_inbound(raw_body: String) -> WhatsAppCloudInboundNor
 }
 
 #[tauri::command]
-async fn connector_send_chatgpt(text: String) -> Result<ConnectorSendProof, String> {
+async fn connector_send_chatgpt(
+  http_client: tauri::State<'_, reqwest::Client>,
+  text: String,
+) -> Result<ConnectorSendProof, String> {
   let sent_at_ms = now_ms();
   let key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
   if key.trim().is_empty() {
@@ -2537,11 +2604,7 @@ async fn connector_send_chatgpt(text: String) -> Result<ConnectorSendProof, Stri
   }
 
   let model = std::env::var("OPENAI_CONNECTOR_MODEL").unwrap_or_else(|_| "gpt-4.1-mini".to_string());
-  let client = reqwest::Client::builder()
-    .timeout(Duration::from_secs(30))
-    .user_agent("Alphonso-ChatGPT-Connector/0.1")
-    .build()
-    .map_err(|error| error.to_string())?;
+  let client = http_client.inner();
   let payload = serde_json::json!({
     "model": model,
     "input": clean_text
@@ -2585,7 +2648,10 @@ async fn connector_send_chatgpt(text: String) -> Result<ConnectorSendProof, Stri
 }
 
 #[tauri::command]
-async fn connector_send_claude(text: String) -> Result<ConnectorSendProof, String> {
+async fn connector_send_claude(
+  http_client: tauri::State<'_, reqwest::Client>,
+  text: String,
+) -> Result<ConnectorSendProof, String> {
   let sent_at_ms = now_ms();
   let key = std::env::var("ANTHROPIC_API_KEY").unwrap_or_default();
   if key.trim().is_empty() {
@@ -2614,11 +2680,7 @@ async fn connector_send_claude(text: String) -> Result<ConnectorSendProof, Strin
   }
 
   let model = std::env::var("CLAUDE_CONNECTOR_MODEL").unwrap_or_else(|_| "claude-3-5-sonnet-latest".to_string());
-  let client = reqwest::Client::builder()
-    .timeout(Duration::from_secs(30))
-    .user_agent("Alphonso-Claude-Connector/0.1")
-    .build()
-    .map_err(|error| error.to_string())?;
+  let client = http_client.inner();
   let payload = serde_json::json!({
     "model": model,
     "max_tokens": 512,
@@ -5435,6 +5497,123 @@ mod tests {
     let meta_version = read_memory_schema_version(&conn);
     assert_eq!(meta_version, MEMORY_SCHEMA_VERSION);
   }
+
+  // ── allowed_program ────────────────────────────────────────────────────────
+
+  #[test]
+  fn allowed_program_accepts_known_safe_programs() {
+    assert!(allowed_program("ollama"), "ollama should be allowed");
+    assert!(allowed_program("git"), "git should be allowed");
+    assert!(allowed_program("node"), "node should be allowed");
+    assert!(allowed_program("npm"), "npm should be allowed");
+    assert!(allowed_program("npm.cmd"), "npm.cmd should be allowed");
+    assert!(allowed_program("tasklist"), "tasklist should be allowed");
+  }
+
+  #[test]
+  fn allowed_program_rejects_dangerous_programs() {
+    assert!(!allowed_program("cmd"), "cmd should not be allowed");
+    assert!(!allowed_program("cmd.exe"), "cmd.exe should not be allowed");
+    assert!(!allowed_program("powershell"), "powershell should not be allowed");
+    assert!(!allowed_program("bash"), "bash should not be allowed");
+    assert!(!allowed_program("sh"), "sh should not be allowed");
+    assert!(!allowed_program("rm"), "rm should not be allowed");
+  }
+
+  #[test]
+  fn allowed_program_is_case_insensitive() {
+    assert!(allowed_program("OLLAMA"), "OLLAMA (uppercase) should be allowed");
+    assert!(allowed_program("Git"), "Git (mixed case) should be allowed");
+    assert!(!allowed_program("CMD"), "CMD (uppercase) should not be allowed");
+  }
+
+  // ── plugin_blocked_token_present ──────────────────────────────────────────
+
+  #[test]
+  fn plugin_blocked_token_detects_shell_injection_tokens() {
+    assert_eq!(plugin_blocked_token_present("foo && bar"), Some("&&"));
+    assert_eq!(plugin_blocked_token_present("foo || bar"), Some("||"));
+    assert_eq!(plugin_blocked_token_present("foo; bar"), Some(";"));
+    assert_eq!(plugin_blocked_token_present("foo | bar"), Some("|"));
+    assert_eq!(plugin_blocked_token_present("foo > out.txt"), Some(">"));
+    assert_eq!(plugin_blocked_token_present("cat < file"), Some("<"));
+    assert_eq!(plugin_blocked_token_present("$(whoami)"), Some("$("));
+    assert_eq!(plugin_blocked_token_present("`id`"), Some("`"));
+  }
+
+  #[test]
+  fn plugin_blocked_token_allows_clean_args() {
+    assert_eq!(plugin_blocked_token_present("--output"), None);
+    assert_eq!(plugin_blocked_token_present("/path/to/file"), None);
+    assert_eq!(plugin_blocked_token_present("hello world"), None);
+    assert_eq!(plugin_blocked_token_present(""), None);
+  }
+
+  // ── validate_plugin_extra_args ────────────────────────────────────────────
+
+  #[test]
+  fn validate_plugin_extra_args_rejects_too_many_args() {
+    let args: Vec<String> = (0..9).map(|i| format!("arg{}", i)).collect();
+    let result = validate_plugin_extra_args(&args);
+    assert!(result.is_err(), "9 args should exceed the limit of 8");
+    assert!(result.unwrap_err().contains("exceed supervised limit"));
+  }
+
+  #[test]
+  fn validate_plugin_extra_args_rejects_oversized_arg() {
+    let long_arg = "x".repeat(121);
+    let result = validate_plugin_extra_args(&[long_arg]);
+    assert!(result.is_err(), "arg of 121 chars should exceed the 120-char limit");
+    assert!(result.unwrap_err().contains("exceeds supervised length limit"));
+  }
+
+  #[test]
+  fn validate_plugin_extra_args_rejects_injection_token() {
+    let result = validate_plugin_extra_args(&["--flag".to_string(), "foo && bar".to_string()]);
+    assert!(result.is_err(), "arg with && should be rejected");
+    assert!(result.unwrap_err().contains("blocked token"));
+  }
+
+  #[test]
+  fn validate_plugin_extra_args_accepts_clean_args() {
+    let args = vec!["--output".to_string(), "/tmp/out.txt".to_string(), "--verbose".to_string()];
+    assert!(validate_plugin_extra_args(&args).is_ok(), "clean args should pass validation");
+  }
+
+  // ── trim_trailing_slashes ─────────────────────────────────────────────────
+
+  #[test]
+  fn trim_trailing_slashes_removes_trailing_slashes() {
+    assert_eq!(trim_trailing_slashes("http://localhost:11434/"), "http://localhost:11434");
+    assert_eq!(trim_trailing_slashes("http://localhost:11434///"), "http://localhost:11434");
+    assert_eq!(trim_trailing_slashes("  http://localhost:11434/  "), "http://localhost:11434");
+  }
+
+  #[test]
+  fn trim_trailing_slashes_leaves_clean_urls_unchanged() {
+    assert_eq!(trim_trailing_slashes("http://localhost:11434"), "http://localhost:11434");
+    assert_eq!(trim_trailing_slashes(""), "");
+  }
+
+  // ── WAL mode pragma round-trip ────────────────────────────────────────────
+
+  #[test]
+  fn wal_pragma_applies_on_in_memory_db() {
+    let conn = Connection::open_in_memory().expect("in-memory db");
+    // WAL mode is silently ignored on in-memory DBs (they use memory journal),
+    // but the execute_batch must not return an error — this confirms the SQL is valid.
+    let result = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+    assert!(result.is_ok(), "WAL pragma should not error on in-memory db: {:?}", result);
+  }
+
+  // ── to_hex ────────────────────────────────────────────────────────────────
+
+  #[test]
+  fn to_hex_produces_correct_lowercase_hex() {
+    assert_eq!(to_hex(&[0x00, 0xff, 0xab, 0x12]), "00ffab12");
+    assert_eq!(to_hex(&[]), "");
+    assert_eq!(to_hex(&[0x0a]), "0a");
+  }
 }
 
 #[tauri::command]
@@ -5674,7 +5853,12 @@ async fn fetch_research_sources(sources: Vec<ResearchSourceInput>) -> Vec<Resear
       continue;
     }
 
-    let url = parsed.unwrap();
+    // Safety: the `continue` block above already handles every Err and non-http/https case.
+    // If we reach this line, parsed is guaranteed Ok with a valid http(s) URL.
+    let url = match parsed {
+      Ok(u) => u,
+      Err(_) => continue, // defensive fallback; should be unreachable due to guard above
+    };
     match client.get(url.clone()).send().await {
       Ok(response) => {
         let status = response.status();
@@ -6602,6 +6786,17 @@ fn scan_workspace_readiness(
 }
 
 #[tauri::command]
+fn send_app_notification(app: tauri::AppHandle, title: String, body: String) -> Result<(), String> {
+  use tauri_plugin_notification::NotificationExt;
+  app.notification()
+    .builder()
+    .title(&title)
+    .body(&body)
+    .show()
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn inspect_updater_release(bundle_dir: String, manifest_dir: String) -> Result<ReleaseArtifactProof, String> {
   let bundle_path = PathBuf::from(&bundle_dir);
   let manifest_path = PathBuf::from(&manifest_dir).join("latest.json");
@@ -6719,7 +6914,16 @@ fn inspect_updater_release(bundle_dir: String, manifest_dir: String) -> Result<R
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   load_dotenv();
+  // Shared HTTP client — built once at startup and stored in Tauri state.
+  // All commands should prefer `state: tauri::State<'_, reqwest::Client>` over creating a new client per call.
+  let http_client = reqwest::Client::builder()
+    .timeout(std::time::Duration::from_secs(30))
+    .build()
+    .expect("Failed to build shared HTTP client");
   tauri::Builder::default()
+    .manage(http_client)
+    .plugin(tauri_plugin_notification::init())
+    .plugin(tauri_plugin_global_shortcut::Builder::new().build())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .setup(|app| {
         let proof_output_dir = native_proof_output_dir();
@@ -6881,11 +7085,12 @@ pub fn run() {
           }
         });
 
-        let show_main_item = MenuItem::with_id(app, "show_main", "Show Main", true, None::<&str>)?;
+        let show_main_item = MenuItem::with_id(app, "show_main", "Open Alphonso", true, None::<&str>)?;
+        let new_chat_item  = MenuItem::with_id(app, "new_chat",  "New Chat",      true, None::<&str>)?;
         let show_coach_item = MenuItem::with_id(app, "show_coach", "Show Coach", true, None::<&str>)?;
       let toggle_coach_item = MenuItem::with_id(app, "toggle_coach", "Toggle Coach", true, None::<&str>)?;
       let quit_item = MenuItem::with_id(app, "quit_app", "Quit Alphonso", true, None::<&str>)?;
-      let tray_menu = Menu::with_items(app, &[&show_main_item, &show_coach_item, &toggle_coach_item, &quit_item])?;
+      let tray_menu = Menu::with_items(app, &[&show_main_item, &new_chat_item, &show_coach_item, &toggle_coach_item, &quit_item])?;
 
       TrayIconBuilder::new()
         .menu(&tray_menu)
@@ -6901,6 +7106,14 @@ pub fn run() {
                 let _ = main_window.show();
                 let _ = main_window.set_focus();
               }
+            }
+            "new_chat" => {
+              if let Some(main_window) = app_handle.get_webview_window("main") {
+                let _ = main_window.unminimize();
+                let _ = main_window.show();
+                let _ = main_window.set_focus();
+              }
+              let _ = app_handle.emit("alphonso://new_chat", "tray");
             }
             "show_coach" => {
               if let Some(coach_window) = app_handle.get_webview_window("coach") {
@@ -6969,6 +7182,22 @@ pub fn run() {
             .build(),
         )?;
       }
+
+      // Global hotkey: Ctrl+Shift+Space → show window + start voice input
+      use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+      let shortcut: Shortcut = "Ctrl+Shift+Space".parse().unwrap_or_else(|_| "CommandOrControl+Shift+Space".parse().expect("fallback hotkey parse"));
+      let app_handle_hs = app.handle().clone();
+      app.handle().global_shortcut().on_shortcut(shortcut, move |_, _, event| {
+        if event.state == ShortcutState::Pressed {
+          if let Some(win) = app_handle_hs.get_webview_window("main") {
+            let _ = win.unminimize();
+            let _ = win.show();
+            let _ = win.set_focus();
+          }
+          let _ = app_handle_hs.emit("alphonso://voice_start", "hotkey");
+        }
+      })?;
+
       Ok(())
     })
     .on_page_load(|window, _payload| {
@@ -7000,6 +7229,13 @@ pub fn run() {
     })
     .on_window_event(|window, event| {
       match event {
+        WindowEvent::CloseRequested { api, .. } => {
+          // Hide to tray instead of closing; "Quit Alphonso" in the tray menu exits for real.
+          if window.label() == "main" {
+            let _ = window.hide();
+            api.prevent_close();
+          }
+        }
         WindowEvent::Focused(true) | WindowEvent::Resized(_) => {
           let proof_output_dir = native_proof_output_dir();
           let payload = NativeProofStageProof {
@@ -7024,6 +7260,13 @@ pub fn run() {
       execute_command_verified,
       run_native_rc0_proof,
       runway_generate_video,
+      runway_list_pending_jobs,
+      runway_resume_task,
+      send_app_notification,
+      save_settings,
+      load_settings,
+      kv_set,
+      kv_get,
       verify_paths,
       read_runtime_env_value,
       alphonso_bridge_status,
