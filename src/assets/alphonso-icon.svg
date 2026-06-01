@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Deep space background gradient -->
+    <radialGradient id="bgGrad" cx="256" cy="200" r="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0e0c22"/>
+      <stop offset="100%" stop-color="#05050f"/>
+    </radialGradient>
+
+    <!-- A-leg gradient: bright sky-blue at apex, deeper blue at feet -->
+    <linearGradient id="legGrad" x1="256" y1="82" x2="256" y2="422" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#bfdbfe"/>
+      <stop offset="30%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#1e40af"/>
+    </linearGradient>
+
+    <!-- Gold crossbar gradient: rich amber center, deep gold edges -->
+    <linearGradient id="barGrad" x1="192" y1="278" x2="320" y2="278" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#d97706"/>
+      <stop offset="50%" stop-color="#fde68a"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+
+    <!-- Apex star glow gradient -->
+    <radialGradient id="apexGrad" cx="256" cy="82" r="28" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fef9c3"/>
+      <stop offset="60%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#b45309"/>
+    </radialGradient>
+
+    <!-- Ambient center glow -->
+    <radialGradient id="ambientGlow" cx="256" cy="278" r="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Gold ambient glow around crossbar -->
+    <radialGradient id="goldGlow" cx="256" cy="278" r="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Apex glow blob -->
+    <radialGradient id="apexGlow" cx="256" cy="82" r="70" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#93c5fd" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#93c5fd" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Circuit grid pattern (very subtle) -->
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M 28 0 L 0 0 0 28" fill="none" stroke="#ffffff" stroke-width="0.4" opacity="0.035"/>
+    </pattern>
+
+    <!-- Glow filter for the A strokes -->
+    <filter id="strokeGlow" x="-30%" y="-8%" width="160%" height="116%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="9" result="blurOut"/>
+      <feMerge>
+        <feMergeNode in="blurOut"/>
+        <feMergeNode in="blurOut"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Glow filter for crossbar -->
+    <filter id="crossGlow" x="-12%" y="-120%" width="124%" height="340%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="9" result="blurOut"/>
+      <feMerge>
+        <feMergeNode in="blurOut"/>
+        <feMergeNode in="blurOut"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Dot glow -->
+    <filter id="dotGlow" x="-150%" y="-150%" width="400%" height="400%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blurOut"/>
+      <feMerge>
+        <feMergeNode in="blurOut"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Apex star glow -->
+    <filter id="starGlow" x="-200%" y="-200%" width="500%" height="500%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="14" result="blurOut"/>
+      <feMerge>
+        <feMergeNode in="blurOut"/>
+        <feMergeNode in="blurOut"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- ─── BACKGROUND ─── -->
+  <rect width="512" height="512" rx="108" fill="url(#bgGrad)"/>
+  <!-- Subtle circuit grid -->
+  <rect width="512" height="512" rx="108" fill="url(#grid)"/>
+
+  <!-- ─── AMBIENT GLOWS ─── -->
+  <!-- Blue ambient behind center -->
+  <ellipse cx="256" cy="260" rx="200" ry="185" fill="url(#ambientGlow)"/>
+  <!-- Gold ambient behind crossbar -->
+  <ellipse cx="256" cy="278" rx="140" ry="50" fill="url(#goldGlow)"/>
+  <!-- Apex halo -->
+  <ellipse cx="256" cy="82" rx="70" ry="60" fill="url(#apexGlow)"/>
+
+  <!-- ─── THE A LETTERFORM ─── -->
+  <!-- Left leg: apex (256, 82) → left foot (108, 422) -->
+  <line x1="256" y1="82" x2="108" y2="422"
+        stroke="url(#legGrad)" stroke-width="50" stroke-linecap="round"
+        filter="url(#strokeGlow)"/>
+
+  <!-- Right leg: apex (256, 82) → right foot (404, 422) -->
+  <line x1="256" y1="82" x2="404" y2="422"
+        stroke="url(#legGrad)" stroke-width="50" stroke-linecap="round"
+        filter="url(#strokeGlow)"/>
+
+  <!-- Crossbar: (192, 278) → (320, 278)  [at 58% down each leg from apex] -->
+  <line x1="192" y1="278" x2="320" y2="278"
+        stroke="url(#barGrad)" stroke-width="38" stroke-linecap="round"
+        filter="url(#crossGlow)"/>
+
+  <!-- ─── NETWORK NODE DOTS ─── -->
+  <!-- Left-leg mid node (~35% from apex: x=205, y=204) -->
+  <circle cx="205" cy="204" r="6" fill="#93c5fd" opacity="0.85" filter="url(#dotGlow)"/>
+  <!-- Right-leg mid node (~35%) -->
+  <circle cx="307" cy="204" r="6" fill="#93c5fd" opacity="0.85" filter="url(#dotGlow)"/>
+
+  <!-- Crossbar left endpoint node -->
+  <circle cx="192" cy="278" r="9" fill="#fde68a" filter="url(#dotGlow)"/>
+  <!-- Crossbar right endpoint node -->
+  <circle cx="320" cy="278" r="9" fill="#fde68a" filter="url(#dotGlow)"/>
+
+  <!-- Left foot node -->
+  <circle cx="108" cy="422" r="8" fill="#3b82f6" opacity="0.75" filter="url(#dotGlow)"/>
+  <!-- Right foot node -->
+  <circle cx="404" cy="422" r="8" fill="#3b82f6" opacity="0.75" filter="url(#dotGlow)"/>
+
+  <!-- ─── APEX STAR ─── -->
+  <!-- Outer glow ring -->
+  <circle cx="256" cy="82" r="22" fill="url(#apexGrad)" opacity="0.4" filter="url(#starGlow)"/>
+  <!-- Inner bright core -->
+  <circle cx="256" cy="82" r="14" fill="url(#apexGrad)" filter="url(#starGlow)"/>
+  <!-- Pinpoint center -->
+  <circle cx="256" cy="82" r="6" fill="#fef9c3"/>
+
+  <!-- ─── SUBTLE BORDER RING ─── -->
+  <rect width="512" height="512" rx="108" fill="none"
+        stroke="#ffffff" stroke-width="1" opacity="0.04"/>
+</svg>

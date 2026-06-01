@@ -1,8 +1,9 @@
-import { ArrowUpCircle, Globe, User } from 'lucide-react';
+import { ArrowUpCircle, Globe, WifiOff } from 'lucide-react';
 import { normalizeEndpoint } from '../lib/ollama';
 import { Badge, StatusDot } from './ui/Badge';
+import alphonsoIcon from '../assets/alphonso-icon.svg';
 
-export function TopBar({ settings, ollamaStatus, selectedModelMissing, operatorMode, activeTab, updateAvailable, updateVersion, onOpenSettings }) {
+export function TopBar({ settings, ollamaStatus, selectedModelMissing, operatorMode, activeTab, updateAvailable, updateVersion, isOnline = true, onOpenSettings }) {
   const modelLabel = selectedModelMissing
     ? 'Model not found'
     : settings.selectedModel || 'No model selected';
@@ -18,6 +19,12 @@ export function TopBar({ settings, ollamaStatus, selectedModelMissing, operatorM
           <StatusDot state={ollamaStatus.state} />
           <span className="text-[11px] font-semibold text-zinc-300">{ollamaStatus.label}</span>
         </div>
+        {!isOnline && (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 border border-zinc-600/40 rounded-full" title="No internet — Runway, Brave Search, and cloud features unavailable">
+            <WifiOff className="w-3 h-3 text-zinc-400" />
+            <span className="text-[11px] font-bold text-zinc-400">Offline</span>
+          </div>
+        )}
         {updateAvailable && (
           <button
             onClick={onOpenSettings}
@@ -43,9 +50,7 @@ export function TopBar({ settings, ollamaStatus, selectedModelMissing, operatorM
         {settings.localOnlyMode && <Badge color="indigo">Local Only</Badge>}
         {settings.zeroCostMode && <Badge color="green">Zero Cost</Badge>}
         <Badge color={selectedModelMissing ? 'amber' : 'indigo'}>{modelLabel}</Badge>
-        <div className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center">
-          <User className="w-4 h-4 text-zinc-400" />
-        </div>
+        <img src={alphonsoIcon} alt="Alphonso" className="w-8 h-8 rounded-full shadow-[0_0_12px_rgba(59,130,246,0.3)]" />
       </div>
     </header>
   );

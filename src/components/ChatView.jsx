@@ -1,5 +1,5 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react';
-import { Bot, Download, History, Paperclip, Send, Trash2 } from 'lucide-react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import { Bot, Download, History, Paperclip, Search, Send, Trash2, X } from 'lucide-react';
 import { getStorage, setStorage } from '../lib/appStorage';
 import { nextMsgId, CHAT_ASSISTANT_PROMPT, shouldRouteThroughJose } from '../lib/chatUtils';
 import { isJoseIntakeCommand, runJoseCommandExecutionPipeline } from '../services/joseExecutionEngineService';
@@ -9,6 +9,7 @@ import {
   classifyOllamaError,
   generateOllamaStream
 } from '../lib/ollama';
+import { ModelSwitcher } from './ModelSwitcher';
 
 const RuntimeNotice = lazy(() => import('./RuntimeNotice').then((mod) => ({ default: mod.RuntimeNotice })));
 const MicrophoneStatus = lazy(() => import('./MicrophoneStatus').then((mod) => ({ default: mod.MicrophoneStatus })));
@@ -26,12 +27,15 @@ export function ChatView({
   onTaskComplete,
   onRetryOllama,
   onJoseExecutionState,
-  onOpenSettings
+  onOpenSettings,
+  onModelChange
 }) {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [attachedFile, setAttachedFile] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -229,28 +233,66 @@ export function ChatView({
     URL.revokeObjectURL(url);
   };
 
+  const visibleMessages = useMemo(() => {
+    if (!searchQuery.trim()) return messages;
+    const q = searchQuery.toLowerCase();
+    return messages.filter((m) => m.content?.toLowerCase().includes(q));
+  }, [messages, searchQuery]);
+
   return (
     <div className="h-full flex flex-col">
-      <div className="h-12 flex items-center justify-between px-6 border-b border-white/[0.03] shrink-0 bg-zinc-950/40">
-        <div className="flex items-center gap-2">
-          <History className="w-3.5 h-3.5 text-zinc-500" />
-          <span className="text-[11px] text-zinc-500 font-medium">CHAT SESSION: {activeChatId}</span>
+      <div className="border-b border-white/[0.03] shrink-0 bg-zinc-950/40">
+        <div className="h-12 flex items-center justify-between px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <History className="w-3.5 h-3.5 text-zinc-500" />
+              <span className="text-[11px] text-zinc-500 font-medium">CHAT SESSION: {activeChatId}</span>
+            </div>
+            <ModelSwitcher
+              initialModel={settings.selectedModel}
+              onModelChange={onModelChange}
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => { setSearchOpen((o) => !o); setSearchQuery(''); }}
+              className={`text-[10px] flex items-center gap-1.5 transition-colors uppercase tracking-widest font-bold ${searchOpen ? 'text-indigo-400' : 'text-zinc-500 hover:text-indigo-400'}`}
+            >
+              <Search className="w-3 h-3" />
+            </button>
+            <button
+              onClick={exportChat}
+              disabled={messages.length === 0}
+              className="text-[10px] text-zinc-500 hover:text-indigo-400 flex items-center gap-1.5 transition-colors uppercase tracking-widest font-bold disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <Download className="w-3 h-3" /> Export
+            </button>
+            <button
+              onClick={clearChat}
+              className="text-[10px] text-zinc-500 hover:text-red-400 flex items-center gap-1.5 transition-colors uppercase tracking-widest font-bold"
+            >
+              <Trash2 className="w-3 h-3" /> Clear
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={exportChat}
-            disabled={messages.length === 0}
-            className="text-[10px] text-zinc-500 hover:text-indigo-400 flex items-center gap-1.5 transition-colors uppercase tracking-widest font-bold disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            <Download className="w-3 h-3" /> Export
-          </button>
-          <button
-            onClick={clearChat}
-            className="text-[10px] text-zinc-500 hover:text-red-400 flex items-center gap-1.5 transition-colors uppercase tracking-widest font-bold"
-          >
-            <Trash2 className="w-3 h-3" /> Clear
-          </button>
-        </div>
+        {searchOpen && (
+          <div className="flex items-center gap-2 px-6 pb-2">
+            <Search className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+            <input
+              autoFocus
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search messages…"
+              className="flex-1 bg-transparent text-sm text-zinc-200 placeholder-zinc-600 outline-none"
+            />
+            {searchQuery && (
+              <span className="text-[10px] text-zinc-500">{visibleMessages.length} of {messages.length}</span>
+            )}
+            <button onClick={() => setSearchQuery('')} className="text-zinc-600 hover:text-zinc-400">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
       <Suspense fallback={null}>
@@ -271,7 +313,10 @@ export function ChatView({
           </div>
         )}
 
-        {messages.map((message) => (
+        {searchQuery && visibleMessages.length === 0 && (
+          <div className="text-center text-[11px] text-zinc-600 py-8">No messages match "{searchQuery}"</div>
+        )}
+        {visibleMessages.map((message) => (
           <div key={message.id} className={`flex gap-4 max-w-3xl mx-auto w-full animate-in fade-in slide-in-from-bottom-2 duration-300 ${message.role === 'user' ? 'justify-end' : ''}`}>
             {message.role === 'assistant' && (
               <div className={`w-8 h-8 rounded-lg ${message.isError ? 'bg-red-500/10 border-red-500/20' : 'bg-indigo-500/10 border-indigo-500/20'} border flex items-center justify-center shrink-0 mt-1 shadow-sm`}>

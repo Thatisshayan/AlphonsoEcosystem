@@ -4,6 +4,7 @@ import miyaMascot from '../assets/miya-mascot-main.webp';
 import hectorMascot from '../assets/hector-mascot.webp';
 import mariaMascot from '../assets/agents/maria/maria-mascot-main.webp';
 import marcusMascot from '../assets/agents/marcus/marcus-mascot-main.webp';
+import { getCustomAvatarDataUrl } from './agentAvatarService';
 
 const AGENT_MASCOT_MAP = {
   jose: joseMascot,
@@ -15,7 +16,10 @@ const AGENT_MASCOT_MAP = {
 };
 
 export function getAgentMascotPath(agentId) {
-  return AGENT_MASCOT_MAP[String(agentId || '').toLowerCase()] || null;
+  const id = String(agentId || '').toLowerCase();
+  const custom = getCustomAvatarDataUrl(id);
+  if (custom) return custom;
+  return AGENT_MASCOT_MAP[id] || null;
 }
 
 export function getAgentInitials(nameOrId) {

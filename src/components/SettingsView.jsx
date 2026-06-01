@@ -1,7 +1,9 @@
-import React, { useRef, useState } from 'react';
-import { Activity, ChevronDown, ClipboardCopy, Compass, Download, Folder, Monitor, Palette, RefreshCw, Terminal, Cpu } from 'lucide-react';
+import React, { useRef, useState, useCallback } from 'react';
+import { Activity, ChevronDown, ClipboardCopy, Compass, Download, Folder, Monitor, Palette, RefreshCw, Terminal, Cpu, UserRound, Trash2 } from 'lucide-react';
 import { Badge, SectionHeader, StatusDot, statusColors } from './ui/Badge';
 import { formatModelSize, normalizeEndpoint as _normalizeEndpoint } from '../lib/ollama';
+import { getCustomAvatarDataUrl, removeCustomAvatar, setCustomAvatar } from '../services/agentAvatarService';
+import { getAgentMascotPath } from '../services/agentVisualService';
 
 function ModelSelector({ models, selectedModel, selectedModelMissing, onSelectModel }) {
   return (
@@ -84,6 +86,85 @@ function ModelPullHelper({ onRefresh }) {
         <div className="font-mono text-[11px] bg-black/40 border border-white/5 rounded-lg px-3 py-2 text-emerald-400 select-all">{cmd}</div>
       )}
       <p className="text-[11px] text-zinc-600">Paste this in a terminal. When the download finishes, click <button onClick={onRefresh} className="text-indigo-400 hover:text-indigo-300 underline">Refresh Models</button> to load it.</p>
+    </div>
+  );
+}
+
+const AVATAR_AGENTS = [
+  { id: 'alphonso', label: 'Alphonso' },
+  { id: 'jose',     label: 'Jose' },
+  { id: 'miya',     label: 'Miya' },
+  { id: 'hector',   label: 'Hector' },
+  { id: 'marcus',   label: 'Marcus' },
+  { id: 'maria',    label: 'Maria' },
+  { id: 'echo',     label: 'Echo' },
+  { id: 'sentinel', label: 'Sentinel' },
+  { id: 'nova',     label: 'Nova' }
+];
+
+function AgentAvatarCard({ agentId, label }) {
+  const fileRef = useRef(null);
+  const [preview, setPreview] = useState(() => getAgentMascotPath(agentId));
+  const [hasCustom, setHasCustom] = useState(() => Boolean(getCustomAvatarDataUrl(agentId)));
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleFile = useCallback(async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploading(true);
+    setError('');
+    try {
+      const dataUrl = await setCustomAvatar(agentId, file);
+      setPreview(dataUrl);
+      setHasCustom(true);
+    } catch (err) {
+      setError(String(err.message || err));
+    } finally {
+      setUploading(false);
+    }
+  }, [agentId]);
+
+  const handleRemove = useCallback(() => {
+    removeCustomAvatar(agentId);
+    setPreview(getAgentMascotPath(agentId));
+    setHasCustom(false);
+    setError('');
+  }, [agentId]);
+
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-white/[0.06] bg-zinc-900/50 p-3">
+      <button
+        onClick={() => fileRef.current?.click()}
+        disabled={uploading}
+        title={`Upload custom avatar for ${label}`}
+        className="relative w-16 h-16 rounded-full overflow-hidden border border-white/10 group shrink-0 hover:border-indigo-500/40 transition-colors disabled:opacity-60"
+      >
+        {preview ? (
+          <img src={preview} alt={label} className="w-full h-full object-cover object-center" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-zinc-800">
+            <UserRound className="w-6 h-6 text-zinc-500" />
+          </div>
+        )}
+        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+          <span className="text-[9px] font-bold uppercase tracking-widest text-white">Change</span>
+        </div>
+      </button>
+      <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
+      <span className="text-[11px] font-semibold text-zinc-300">{label}</span>
+      {hasCustom && (
+        <button
+          onClick={handleRemove}
+          className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-red-400 transition-colors"
+        >
+          <Trash2 className="w-3 h-3" />
+          Reset
+        </button>
+      )}
+      {!hasCustom && <span className="text-[10px] text-zinc-600">Default</span>}
+      {error && <span className="text-[10px] text-red-400 text-center">{error}</span>}
     </div>
   );
 }
@@ -422,6 +503,19 @@ export function SettingsView({
                 <span className="text-[9px] text-indigo-400 font-bold">Active</span>
               )}
             </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <SectionHeader icon={UserRound} label="Agent Avatars" />
+        <p className="text-[11px] text-zinc-500">
+          Click an avatar to upload a custom mascot image (PNG, JPG, WebP). Images are resized to 256 × 256 and stored locally.
+          Click <strong className="text-zinc-400">Reset</strong> to restore the default.
+        </p>
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 md:grid-cols-9">
+          {AVATAR_AGENTS.map((agent) => (
+            <AgentAvatarCard key={agent.id} agentId={agent.id} label={agent.label} />
           ))}
         </div>
       </section>

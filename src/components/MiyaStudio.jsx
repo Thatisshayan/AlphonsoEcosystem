@@ -15,7 +15,8 @@ import { pushMiyaMemory, upsertBrandKit } from '../services/miyaMemoryService';
 import { buildMiyaExportPacket } from '../services/miyaExportPacketService';
 import { generateOllamaResponse } from '../lib/ollama';
 import { generateSdWebUiImage, getComfyUiVideoHistory, queueComfyUiVideo } from '../services/connectorRegistryService';
-import { generateRunwayVideo } from '../services/runwayService';
+import { generateRunwayVideo, listPendingRunwayJobs, resumeRunwayTask } from '../services/runwayService';
+import { sendNativeNotification } from '../services/notificationService';
 
 const studioTabs = [
   { id: 'script', label: 'Script Studio', icon: FileVideo },
@@ -91,6 +92,7 @@ export function MiyaStudio({
   const [mediaResult, setMediaResult] = useState(null);
   const [runwayResult, setRunwayResult] = useState(null);
   const [runwayElapsedMs, setRunwayElapsedMs] = useState(0);
+  const [pendingJobs, setPendingJobs] = useState([]);
   const runwayTimerRef = useRef(null);
   const runwayStartRef = useRef(null);
 
@@ -588,6 +590,7 @@ export function MiyaStudio({
         duration: Number(mediaRuntime.runwayDuration || 5)
       });
       setRunwayResult(result);
+      sendNativeNotification('Miya', result.ok ? `Runway render complete: ${pipeline.topic || 'Untitled'}` : `Runway render failed: ${result.message || 'unknown error'}`);
       pushMiyaMemory({
         category: 'creative_memory',
         title: `Runway Draft: ${pipeline.topic || 'Untitled'}`,
@@ -625,6 +628,43 @@ export function MiyaStudio({
     }
   };
 
+  useEffect(() => {
+    listPendingRunwayJobs().then(setPendingJobs).catch(() => {});
+  }, []);
+
+  const resumePendingJob = async (job) => {
+    setPendingJobs((prev) => prev.filter((j) => j.taskId !== job.taskId));
+    setIsGeneratingMedia(true);
+    setLastError('');
+    setRunwayResult(null);
+    setRunwayElapsedMs(0);
+    runwayStartRef.current = Date.now();
+    runwayTimerRef.current = window.setInterval(() => {
+      setRunwayElapsedMs(Date.now() - (runwayStartRef.current || Date.now()));
+    }, 1000);
+    onStudioStateChange?.('rendering', `Resuming Runway task ${job.taskId}.`);
+    try {
+      const result = await resumeRunwayTask({ taskId: job.taskId, outputDir: job.outputDir });
+      setRunwayResult(result);
+      pushMiyaMemory({
+        category: 'creative_memory',
+        title: `Runway Resume: ${job.taskId}`,
+        content: result,
+        source: 'miya-runway-resume'
+      });
+      onStudioStateChange?.(result.ok ? 'task_complete' : 'warning', result.message || 'Runway resume finished.');
+    } catch (error) {
+      setLastError(String(error));
+      onStudioStateChange?.('warning', 'Runway resume failed.');
+    } finally {
+      setIsGeneratingMedia(false);
+      if (runwayTimerRef.current) {
+        window.clearInterval(runwayTimerRef.current);
+        runwayTimerRef.current = null;
+      }
+    }
+  };
+
   useEffect(() => () => {
     if (runwayTimerRef.current) window.clearInterval(runwayTimerRef.current);
   }, []);
@@ -634,6 +674,85 @@ export function MiyaStudio({
     const m = Math.floor(s / 60);
     return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
   })();
+
+  const [pipelineStep, setPipelineStep] = useState(null); // null | 'image' | 'video' | 'done' | 'error'
+
+  const loadPromptsFromScript = () => {
+    if (!creativeOutput) return;
+    const imgPrompt = Array.isArray(creativeOutput.image_prompts) ? creativeOutput.image_prompts[0] : '';
+    const vidPrompt = Array.isArray(creativeOutput.video_prompts) ? creativeOutput.video_prompts[0] : '';
+    setMediaRuntime((current) => ({
+      ...current,
+      prompt: imgPrompt || current.prompt,
+      runwayPrompt: vidPrompt || current.runwayPrompt
+    }));
+  };
+
+  const runFullPipeline = async () => {
+    if (!creativeOutput) { setLastError('Generate a script package first.'); return; }
+    const imgPrompt = (Array.isArray(creativeOutput.image_prompts) && creativeOutput.image_prompts[0]) || pipeline.idea || pipeline.topic;
+    const vidPrompt = (Array.isArray(creativeOutput.video_prompts) && creativeOutput.video_prompts[0]) || imgPrompt;
+    if (!imgPrompt) { setLastError('No image prompt found in script package.'); return; }
+
+    setIsGeneratingMedia(true);
+    setLastError('');
+    setMediaResult(null);
+    setRunwayResult(null);
+    setPipelineStep('image');
+    onStudioStateChange?.('rendering', 'Full pipeline: generating image…');
+
+    let imgResult = null;
+    try {
+      imgResult = await generateSdWebUiImage({
+        prompt: imgPrompt,
+        negativePrompt: mediaRuntime.negativePrompt,
+        width: Number(mediaRuntime.width || 768),
+        height: Number(mediaRuntime.height || 768),
+        steps: Number(mediaRuntime.steps || 24),
+        cfgScale: Number(mediaRuntime.cfgScale || 7)
+      });
+      setMediaResult(imgResult);
+      if (!imgResult?.ok) {
+        setLastError(imgResult?.error || imgResult?.message || 'Image generation failed.');
+        setPipelineStep('error');
+        onStudioStateChange?.('warning', 'Pipeline stopped: image generation failed.');
+        setIsGeneratingMedia(false);
+        return;
+      }
+    } catch (err) {
+      setLastError(String(err));
+      setPipelineStep('error');
+      setIsGeneratingMedia(false);
+      return;
+    }
+
+    setPipelineStep('video');
+    onStudioStateChange?.('rendering', 'Full pipeline: sending to Runway…');
+    setRunwayElapsedMs(0);
+    runwayStartRef.current = Date.now();
+    runwayTimerRef.current = window.setInterval(() => {
+      setRunwayElapsedMs(Date.now() - (runwayStartRef.current || Date.now()));
+    }, 1000);
+
+    try {
+      const vidResult = await generateRunwayVideo({
+        promptText: vidPrompt,
+        model: mediaRuntime.runwayModel || 'gen4.5',
+        ratio: mediaRuntime.runwayRatio || '1280:720',
+        duration: Number(mediaRuntime.runwayDuration || 5)
+      });
+      setRunwayResult(vidResult);
+      sendNativeNotification('Miya', vidResult.ok ? `Full pipeline done: ${pipeline.topic || 'Untitled'}` : `Pipeline: Runway failed — ${vidResult.message}`);
+      onStudioStateChange?.(vidResult.ok ? 'task_complete' : 'warning', 'Full pipeline finished.');
+      setPipelineStep(vidResult.ok ? 'done' : 'error');
+    } catch (err) {
+      setLastError(String(err));
+      setPipelineStep('error');
+    } finally {
+      setIsGeneratingMedia(false);
+      if (runwayTimerRef.current) { window.clearInterval(runwayTimerRef.current); runwayTimerRef.current = null; }
+    }
+  };
 
   return (
     <div className="max-w-6xl mx-auto px-8 py-8 space-y-6">
@@ -702,10 +821,16 @@ export function MiyaStudio({
               isGeneratingMedia={isGeneratingMedia}
               runwayElapsedMs={runwayElapsedMs}
               runwayElapsedLabel={runwayElapsedLabel}
+              pendingJobs={pendingJobs}
+              pipelineStep={pipelineStep}
+              hasScriptOutput={Boolean(creativeOutput)}
               onGenerateImage={generateLocalImage}
               onQueueVideo={queueLocalVideo}
               onLoadComfyHistory={loadComfyHistory}
               onGenerateRunwayVideo={generateRunwayVideoDraft}
+              onResumePendingJob={resumePendingJob}
+              onLoadPromptsFromScript={loadPromptsFromScript}
+              onRunFullPipeline={runFullPipeline}
             />
             <YouTubePublishHandoffPanel
               output={creativeOutput}
@@ -818,10 +943,16 @@ function LocalGenerationPanel({
   isGeneratingMedia,
   runwayElapsedMs,
   runwayElapsedLabel,
+  pendingJobs,
+  pipelineStep,
+  hasScriptOutput,
   onGenerateImage,
   onQueueVideo,
   onLoadComfyHistory,
-  onGenerateRunwayVideo
+  onGenerateRunwayVideo,
+  onResumePendingJob,
+  onLoadPromptsFromScript,
+  onRunFullPipeline
 }) {
   return (
     <div className="rounded-xl border border-white/10 bg-zinc-900/40 p-4 space-y-3">
@@ -929,6 +1060,64 @@ function LocalGenerationPanel({
 
       <div className="rounded-xl border border-fuchsia-300/15 bg-fuchsia-500/5 p-4 space-y-3">
         <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+          {/* Full pipeline */}
+          <div className="rounded-xl border border-fuchsia-500/20 bg-fuchsia-950/20 p-3 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-widest text-fuchsia-200">One-Click Pipeline</div>
+                <div className="text-[10px] text-zinc-500 mt-0.5">Script → SD Image → Runway Video</div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={onLoadPromptsFromScript}
+                  disabled={!hasScriptOutput || isBusy}
+                  className="rounded-lg border border-white/10 bg-zinc-800 px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest text-zinc-200 hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  Load Prompts
+                </button>
+                <button
+                  onClick={onRunFullPipeline}
+                  disabled={!hasScriptOutput || isBusy}
+                  className="rounded-lg bg-fuchsia-500 px-3 py-1 text-[9px] font-bold uppercase tracking-widest text-white hover:bg-fuchsia-400 disabled:opacity-50"
+                >
+                  {isBusy && pipelineStep ? `${pipelineStep === 'image' ? '1/2 Image…' : '2/2 Video…'}` : 'Run Pipeline'}
+                </button>
+              </div>
+            </div>
+            {pipelineStep && (
+              <div className="flex items-center gap-2 text-[10px]">
+                {['image', 'video', 'done'].map((step, i) => (
+                  <div key={step} className="flex items-center gap-1">
+                    <div className={`w-2 h-2 rounded-full ${pipelineStep === step ? 'bg-fuchsia-400 animate-pulse' : (pipelineStep === 'done' || (pipelineStep === 'video' && i === 0)) ? 'bg-emerald-400' : pipelineStep === 'error' && i <= ['image','video'].indexOf(pipelineStep) ? 'bg-red-400' : 'bg-zinc-700'}`} />
+                    <span className={pipelineStep === step ? 'text-fuchsia-300' : 'text-zinc-600'}>{step === 'image' ? 'Image' : step === 'video' ? 'Runway' : 'Done'}</span>
+                    {i < 2 && <span className="text-zinc-700">→</span>}
+                  </div>
+                ))}
+                {pipelineStep === 'error' && <span className="text-red-400 ml-1">failed</span>}
+              </div>
+            )}
+          </div>
+
+          {Array.isArray(pendingJobs) && pendingJobs.length > 0 && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 space-y-2">
+              <div className="text-[11px] font-bold uppercase tracking-widest text-amber-300">Interrupted Runway Jobs</div>
+              {pendingJobs.map((job) => (
+                <div key={job.taskId} className="flex items-center justify-between gap-3 rounded-lg bg-black/20 px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] text-zinc-300 font-mono truncate">{job.taskId}</div>
+                    <div className="text-[10px] text-zinc-500 truncate">{job.promptText}</div>
+                  </div>
+                  <button
+                    onClick={() => onResumePendingJob?.(job)}
+                    disabled={isBusy}
+                    className="shrink-0 rounded-lg bg-amber-500/80 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white hover:bg-amber-400 disabled:opacity-60"
+                  >
+                    Resume
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div>
             <div className="text-xs font-bold uppercase tracking-widest text-fuchsia-200">Runway Cloud Video</div>
             <p className="mt-1 text-[11px] text-zinc-500">

@@ -3,83 +3,195 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Local Agent Desktop</title>
+    <link rel="icon" type="image/svg+xml" href="/src/assets/alphonso-icon.svg"/>
+    <title>Alphonso</title>
     <style>
       html, body, #root {
         width: 100%;
         height: 100%;
         margin: 0;
       }
+
+      /* ── Splash screen ── */
       #alphonso-boot-status {
         position: fixed;
         inset: 0;
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
-        padding: 24px;
-        background: #09090b;
+        gap: 0;
+        background: #05050f;
         color: #f4f4f5;
         font: 600 13px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         letter-spacing: 0.04em;
         text-align: center;
         z-index: 9999;
+        /* subtle radial glow behind icon */
+        background-image: radial-gradient(ellipse 420px 320px at 50% 44%, rgba(59,130,246,0.07) 0%, transparent 100%);
       }
-      #alphonso-boot-status[data-state="ready"] {
-        display: none;
+      #alphonso-boot-status[data-state="ready"] { display: none; }
+
+      /* Icon wrapper — pulsing glow ring */
+      #alphonso-boot-status .splash-icon {
+        width: 88px;
+        height: 88px;
+        border-radius: 22px;
+        overflow: hidden;
+        box-shadow:
+          0 0 0 1px rgba(59,130,246,0.18),
+          0 0 32px rgba(59,130,246,0.22),
+          0 0 80px rgba(59,130,246,0.10);
+        animation: icon-pulse 2.8s ease-in-out infinite;
+        margin-bottom: 24px;
       }
+      #alphonso-boot-status .splash-icon svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      @keyframes icon-pulse {
+        0%, 100% { box-shadow: 0 0 0 1px rgba(59,130,246,0.18), 0 0 28px rgba(59,130,246,0.18), 0 0 70px rgba(59,130,246,0.08); }
+        50%       { box-shadow: 0 0 0 1px rgba(59,130,246,0.30), 0 0 44px rgba(59,130,246,0.30), 0 0 100px rgba(59,130,246,0.15); }
+      }
+
+      /* Wordmark */
+      #alphonso-boot-status .splash-wordmark {
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        background: linear-gradient(90deg, #bfdbfe 0%, #ffffff 50%, #bfdbfe 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 6px;
+      }
+
+      /* Status line */
+      #alphonso-boot-status .splash-status {
+        font-size: 11px;
+        color: #52525b;
+        letter-spacing: 0.06em;
+        margin-bottom: 28px;
+      }
+
+      /* Animated dots loader */
+      #alphonso-boot-status .splash-dots {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        justify-content: center;
+      }
+      #alphonso-boot-status .splash-dots span {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: #3b82f6;
+        opacity: 0.3;
+        animation: dot-bounce 1.4s ease-in-out infinite;
+      }
+      #alphonso-boot-status .splash-dots span:nth-child(2) { animation-delay: 0.2s; }
+      #alphonso-boot-status .splash-dots span:nth-child(3) { animation-delay: 0.4s; }
+      @keyframes dot-bounce {
+        0%, 80%, 100% { opacity: 0.3; transform: scale(1); }
+        40%            { opacity: 1;   transform: scale(1.35); }
+      }
+
+      /* Error state */
       #alphonso-boot-status .panel {
         max-width: 36rem;
-        border: 1px solid rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(239,68,68,0.25);
         border-radius: 18px;
-        padding: 18px 20px;
-        background: rgba(24, 24, 27, 0.9);
-        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.45);
+        padding: 20px 24px;
+        background: rgba(24, 24, 27, 0.92);
+        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.6);
       }
       #alphonso-boot-status .title {
         text-transform: uppercase;
-        font-size: 11px;
-        letter-spacing: 0.24em;
-        color: #a1a1aa;
+        font-size: 10px;
+        letter-spacing: 0.22em;
+        color: #ef4444;
         margin-bottom: 8px;
       }
       #alphonso-boot-status .message {
         font-size: 14px;
         color: #fafafa;
+        margin-bottom: 4px;
       }
       #alphonso-boot-status .detail {
         margin-top: 8px;
         font-size: 11px;
-        color: #a1a1aa;
+        color: #71717a;
         white-space: pre-wrap;
         word-break: break-word;
+        text-align: left;
       }
     </style>
     <script>
       window.__ALPHONSO_BOOT_READY__ = function () {
-        var status = document.getElementById('alphonso-boot-status');
-        if (status) status.dataset.state = 'ready';
+        var el = document.getElementById('alphonso-boot-status');
+        if (el) el.dataset.state = 'ready';
       };
       window.__ALPHONSO_BOOT_ERROR__ = function (message, detail) {
-        var status = document.getElementById('alphonso-boot-status');
-        if (!status) return;
-        status.dataset.state = 'error';
-        status.innerHTML = '<div class="panel"><div class="title">Alphonso boot error</div><div class="message">' + message + '</div><div class="detail">' + detail + '</div></div>';
+        var el = document.getElementById('alphonso-boot-status');
+        if (!el) return;
+        el.dataset.state = 'error';
+        el.innerHTML = '<div class="panel"><div class="title">Boot error</div><div class="message">' + message + '</div><div class="detail">' + (detail || '') + '</div></div>';
       };
-      window.addEventListener('error', function (event) {
-        var message = event && event.message ? String(event.message) : 'Unknown startup error.';
-        var detail = event && event.error && event.error.stack ? String(event.error.stack) : (event && event.filename ? String(event.filename) : '');
-        window.__ALPHONSO_BOOT_ERROR__(message, detail);
+      window.addEventListener('error', function (e) {
+        var msg  = e && e.message ? String(e.message) : 'Unknown startup error.';
+        var det  = e && e.error && e.error.stack ? String(e.error.stack) : (e && e.filename ? String(e.filename) : '');
+        window.__ALPHONSO_BOOT_ERROR__(msg, det);
       });
-      window.addEventListener('unhandledrejection', function (event) {
-        var reason = event && event.reason ? event.reason : 'Unknown rejection.';
-        var message = reason && reason.message ? String(reason.message) : String(reason);
-        var detail = reason && reason.stack ? String(reason.stack) : '';
-        window.__ALPHONSO_BOOT_ERROR__(message, detail);
+      window.addEventListener('unhandledrejection', function (e) {
+        var r   = e && e.reason ? e.reason : 'Unknown rejection.';
+        var msg = r && r.message ? String(r.message) : String(r);
+        var det = r && r.stack  ? String(r.stack)   : '';
+        window.__ALPHONSO_BOOT_ERROR__(msg, det);
       });
     </script>
   </head>
   <body class="bg-zinc-950">
-    <div id="alphonso-boot-status"><div class="panel"><div class="title">Alphonso</div><div class="message">Launching native workspace...</div><div class="detail">If the UI fails to mount, this panel will show the startup error instead of leaving a blank window.</div></div></div>
+    <div id="alphonso-boot-status">
+      <!-- Inline icon (no external asset needed during pre-React boot) -->
+      <div class="splash-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="88" height="88">
+          <defs>
+            <radialGradient id="s-bg" cx="256" cy="200" r="320" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#0e0c22"/>
+              <stop offset="100%" stop-color="#05050f"/>
+            </radialGradient>
+            <linearGradient id="s-leg" x1="256" y1="82" x2="256" y2="422" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#bfdbfe"/>
+              <stop offset="30%" stop-color="#60a5fa"/>
+              <stop offset="100%" stop-color="#1e40af"/>
+            </linearGradient>
+            <linearGradient id="s-bar" x1="192" y1="278" x2="320" y2="278" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#d97706"/>
+              <stop offset="50%" stop-color="#fde68a"/>
+              <stop offset="100%" stop-color="#d97706"/>
+            </linearGradient>
+          </defs>
+          <rect width="512" height="512" rx="108" fill="url(#s-bg)"/>
+          <line x1="256" y1="82" x2="108" y2="422" stroke="url(#s-leg)" stroke-width="50" stroke-linecap="round"/>
+          <line x1="256" y1="82" x2="404" y2="422" stroke="url(#s-leg)" stroke-width="50" stroke-linecap="round"/>
+          <line x1="192" y1="278" x2="320" y2="278" stroke="url(#s-bar)" stroke-width="38" stroke-linecap="round"/>
+          <circle cx="192" cy="278" r="9" fill="#fde68a"/>
+          <circle cx="320" cy="278" r="9" fill="#fde68a"/>
+          <circle cx="256" cy="82"  r="14" fill="#fbbf24"/>
+          <circle cx="108" cy="422" r="8"  fill="#3b82f6" opacity="0.75"/>
+          <circle cx="404" cy="422" r="8"  fill="#3b82f6" opacity="0.75"/>
+        </svg>
+      </div>
+
+      <div class="splash-wordmark">Alphonso</div>
+      <div class="splash-status">Launching native workspace</div>
+      <div class="splash-dots">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

@@ -24,3 +24,17 @@ export async function generateRunwayVideo(options = {}) {
   const request = buildRunwayVideoRequest(options);
   return invoke('runway_generate_video', { request });
 }
+
+export async function listPendingRunwayJobs(outputDir) {
+  return invoke('runway_list_pending_jobs', { outputDir: outputDir ?? null });
+}
+
+export async function resumeRunwayTask({ taskId, outputDir, timeoutSeconds } = {}) {
+  return invoke('runway_resume_task', {
+    request: {
+      taskId: String(taskId || ''),
+      outputDir: outputDir ? String(outputDir) : null,
+      timeoutSeconds: timeoutSeconds ? Number(timeoutSeconds) : null
+    }
+  });
+}

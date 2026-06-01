@@ -50,6 +50,7 @@ import { TRUST_STATES } from '../services/trustModel';
 import { isConnectorAuthenticated, listConnectorAudit, pollWhatsAppConnector } from '../services/connectorRegistryService';
 import { getOrchestrationQueueSnapshot, listOrchestrationQueueTransitions, replayPacketFromDeadLetter } from '../services/orchestrationQueueService';
 import { AgentAvatar } from './AgentAvatar';
+import { JoseTaskQueue } from './JoseTaskQueue';
 
 export function OrchestratorView({
   settings,
@@ -307,6 +308,8 @@ export function OrchestratorView({
           </div>
         </div>
       </header>
+
+      <JoseTaskQueue onRefresh={refreshAll} />
 
       <Panel icon={Crown} title="Jose Command Intake: Shayan -> Jose -> Agents -> Jose -> Shayan">
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, CheckCircle2 } from 'lucide-react';
 import { requireApproval } from '../../../services/approval/approvalService';
 import {
@@ -37,6 +37,7 @@ import { AnalyticsDashboard } from '../workspace/AnalyticsDashboard';
 import { BrandHeader } from '../workspace/BrandHeader';
 import { BrandSettings } from '../workspace/BrandSettings';
 import { ContentCalendar } from '../workspace/ContentCalendar';
+import { hydrateContentJobsFromSqlite, persistContentJobsToSqlite } from '../services/contentPersistenceService';
 import { DraftList } from '../workspace/DraftList';
 import { DraftPreview } from '../workspace/DraftPreview';
 import { GeneratorForm } from '../workspace/GeneratorForm';
@@ -47,6 +48,7 @@ const DEFAULT_FORM = createDefaultContentRequest();
 export function ContentCatalystWorkspace({ settings, onJobChange, onApprovalRequest }) {
   const [form, setForm] = useState(DEFAULT_FORM);
   const [jobs, setJobs] = useState(() => listContentJobs());
+  const contentHydratedRef = useRef(false);
   const [brandProfile, setBrandProfile] = useState(() => getBrandProfile());
   const [activeJobId, setActiveJobId] = useState(() => listContentJobs()[0]?.id || '');
   const [busy, setBusy] = useState(false);
@@ -62,7 +64,20 @@ export function ContentCatalystWorkspace({ settings, onJobChange, onApprovalRequ
 
   useEffect(() => {
     setJobs(listContentJobs());
+    if (contentHydratedRef.current) return;
+    contentHydratedRef.current = true;
+    hydrateContentJobsFromSqlite().then((sqliteJobs) => {
+      if (!sqliteJobs || sqliteJobs.length === 0) return;
+      // Merge SQLite jobs with any already in localStorage (SQLite wins on conflict)
+      const localIds = new Set(listContentJobs().map((j) => j.id));
+      const newOnes = sqliteJobs.filter((j) => !localIds.has(j.id));
+      if (newOnes.length > 0) setJobs((current) => [...newOnes, ...current]);
+    }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (jobs.length > 0) persistContentJobsToSqlite(jobs).catch(() => {});
+  }, [jobs]);
 
   useEffect(() => {
     let mounted = true;

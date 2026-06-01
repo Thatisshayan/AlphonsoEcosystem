@@ -4,6 +4,7 @@ import {
   Brain,
   CheckCircle2,
   Command,
+  Download,
   FolderTree,
   HardDrive,
   Monitor,
@@ -498,8 +499,40 @@ export function OperatorDashboard({
             ))}
           </div>
           <div className="mt-3 rounded-lg bg-zinc-900/60 border border-white/10 px-2.5 py-2">
-            <div className="text-[11px] text-zinc-500 uppercase tracking-widest">Durable Audit (Backend)</div>
-            <div className="text-[10px] text-zinc-300 mt-1">{Array.isArray(durableAuditLogs) ? durableAuditLogs.length : 0} entries</div>
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-[11px] text-zinc-500 uppercase tracking-widest">Durable Audit (Backend)</div>
+                <div className="text-[10px] text-zinc-300 mt-0.5">{Array.isArray(durableAuditLogs) ? durableAuditLogs.length : 0} entries</div>
+              </div>
+              <button
+                onClick={() => {
+                  const payload = {
+                    exportedAt: new Date().toISOString(),
+                    entryCount: Array.isArray(durableAuditLogs) ? durableAuditLogs.length : 0,
+                    entries: durableAuditLogs || []
+                  };
+                  const body = JSON.stringify(payload, null, 2);
+                  // Simple HMAC-style fingerprint using SubtleCrypto
+                  const encoder = new TextEncoder();
+                  crypto.subtle.importKey('raw', encoder.encode('alphonso-audit-v1'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+                    .then((key) => crypto.subtle.sign('HMAC', key, encoder.encode(body)))
+                    .then((sig) => {
+                      const hex = Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
+                      const signed = JSON.stringify({ signature: hex, payload }, null, 2);
+                      const blob = new Blob([signed], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `alphonso-audit-${Date.now()}.json`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    });
+                }}
+                className="flex items-center gap-1 rounded-lg bg-zinc-800 px-2.5 py-1 text-[9px] font-bold uppercase tracking-widest text-zinc-300 hover:bg-zinc-700"
+              >
+                <Download className="w-3 h-3" /> Export
+              </button>
+            </div>
           </div>
         </Panel>
       </div>

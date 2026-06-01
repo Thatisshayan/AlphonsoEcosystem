@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Cloud, Compass, RadioTower, ShieldCheck } from 'lucide-react';
+import { Cloud, Compass, Download, RadioTower, ShieldCheck } from 'lucide-react';
 import { HECTOR_PROFILE } from '../../agents/hector/hectorProfile';
 import { HECTOR_ALLOWED_ACTIONS, HECTOR_BLOCKED_ACTIONS } from '../../agents/hector/hectorPermissions';
 import { HECTOR_SOURCE_TYPES } from '../../agents/hector/hectorResearchSchema';
@@ -62,6 +62,42 @@ export function HectorResearchDesk({ onHectorStateChange }) {
       currentSourceUrl: report?.currentSourceUrl || null,
       lastRunSummary: report?.lastRunSummary || report?.summary || ''
     });
+  };
+
+  const exportReport = () => {
+    if (!selectedReport) return;
+    const r = selectedReport;
+    const sources = Array.isArray(r.sources) ? r.sources : [];
+    const lines = [
+      `# Hector Research Report`,
+      ``,
+      `**Question:** ${r.researchQuestion || 'Untitled'}`,
+      `**Status:** ${r.status || 'unknown'} | **Confidence:** ${r.confidenceLevel || 'unknown'}`,
+      `**Exported:** ${new Date().toISOString()}`,
+      ``,
+      `## Summary`,
+      ``,
+      r.lastRunSummary || r.summary || '_No summary yet._',
+      ``,
+      `## Sources (${sources.length})`,
+      ``,
+      ...sources.map((s, i) => [
+        `### ${i + 1}. ${s.title || s.url || 'Untitled'}`,
+        s.url ? `**URL:** ${s.url}` : '',
+        s.summary ? `\n${s.summary}` : '',
+        s.publishedAt ? `\n_Published: ${s.publishedAt}_` : '',
+        ``
+      ].filter(Boolean).join('\n')),
+      r.runLog?.length ? `## Run Log\n\n${r.runLog.map((e) => `- ${e}`).join('\n')}` : ''
+    ].filter((l) => l !== undefined).join('\n');
+
+    const blob = new Blob([lines], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hector-report-${(r.researchQuestion || 'report').slice(0, 40).replace(/[^a-z0-9]/gi, '-')}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const refresh = () => {
@@ -178,13 +214,24 @@ export function HectorResearchDesk({ onHectorStateChange }) {
           </div>
         </section>
         <div className="space-y-3">
-          <button
-            onClick={fetchSources}
-            disabled={!selectedReport?.id || isFetching}
-            className="w-full rounded-xl border border-teal-300/20 bg-teal-400/15 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-teal-100 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-zinc-900/60 disabled:text-zinc-600"
-          >
-            {isFetching ? 'Running Live Research...' : 'Run Live Research'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={fetchSources}
+              disabled={!selectedReport?.id || isFetching}
+              className="flex-1 rounded-xl border border-teal-300/20 bg-teal-400/15 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-teal-100 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-zinc-900/60 disabled:text-zinc-600"
+            >
+              {isFetching ? 'Running Live Research...' : 'Run Live Research'}
+            </button>
+            <button
+              onClick={exportReport}
+              disabled={!selectedReport}
+              title="Export report as Markdown"
+              className="flex items-center gap-1 rounded-xl border border-white/10 bg-zinc-800 px-3 py-2 text-[10px] font-bold text-zinc-300 hover:bg-zinc-700 disabled:opacity-40"
+            >
+              <Download className="w-3.5 h-3.5" />
+              .md
+            </button>
+          </div>
           {fetchError && <div className="rounded-xl border border-red-300/15 bg-red-500/10 p-3 text-[11px] text-red-100">{fetchError}</div>}
           <SourceBoard report={selectedReport} />
         </div>
