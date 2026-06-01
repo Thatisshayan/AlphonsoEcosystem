@@ -9,12 +9,14 @@ import {
   Layers,
   MessageSquare,
   Plus,
+  RadioTower,
   Settings,
-  Sparkles,
   Terminal,
   Trash2,
   Zap
 } from 'lucide-react';
+import alphonsoIcon from '../assets/alphonso-icon.svg';
+import { ConnectorStatusStrip } from './ConnectorHealthPanel';
 
 const NAV_ITEMS = [
   { id: 'chat', icon: MessageSquare, label: 'Chat Hub' },
@@ -26,17 +28,17 @@ const NAV_ITEMS = [
   { id: 'automation', icon: Zap, label: 'Automation' },
   { id: 'files', icon: FolderOpen, label: 'Knowledge' },
   { id: 'ecosystem', icon: Layers, label: 'Ecosystem' },
-  { id: 'operator', icon: Activity, label: 'Operator' }
+  { id: 'operator', icon: Activity, label: 'Operator' },
+  { id: 'connectors', icon: RadioTower, label: 'Connectors', showStatusDot: true }
 ];
 
-export function Sidebar({ activeTab, setActiveTab, isOpen, onToggle, conversations, activeChatId, setActiveChatId, onCreateChat, onDeleteChat }) {
+export function Sidebar({ activeTab, setActiveTab, isOpen, onToggle, conversations, activeChatId, setActiveChatId, onCreateChat, onDeleteChat, settings }) {
+  const zeroCostMode = Boolean(settings?.zeroCostMode);
   return (
     <aside className={`${isOpen ? 'w-72' : 'w-20'} flex flex-col transition-all duration-300 ease-in-out bg-zinc-950 shrink-0 border-r border-white/[0.03]`}>
       <div className="h-16 flex items-center px-4 border-b border-white/[0.05] shrink-0">
         <div className="flex items-center gap-3 w-full">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center shadow-[0_0_15px_rgba(99,102,241,0.3)] shrink-0">
-            <Sparkles className="w-5 h-5 text-white" />
-          </div>
+          <img src={alphonsoIcon} alt="Alphonso" className="w-8 h-8 rounded-lg shrink-0 shadow-[0_0_16px_rgba(59,130,246,0.35)]" />
           {isOpen && <span className="font-bold text-sm tracking-widest bg-clip-text text-transparent bg-gradient-to-r from-white to-zinc-500">ALPHONSO</span>}
           <button
             onClick={onToggle}
@@ -60,8 +62,13 @@ export function Sidebar({ activeTab, setActiveTab, isOpen, onToggle, conversatio
                 activeTab === item.id ? 'bg-zinc-800 text-white ring-1 ring-white/10' : 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200'
               }`}
             >
-              <item.icon className={`w-4 h-4 ${activeTab === item.id ? 'text-indigo-400' : ''}`} />
-              {isOpen && <span className="font-medium">{item.label}</span>}
+              <item.icon className={`w-4 h-4 shrink-0 ${activeTab === item.id ? 'text-indigo-400' : ''}`} />
+              {isOpen && (
+                <span className="font-medium flex-1 truncate">{item.label}</span>
+              )}
+              {isOpen && item.showStatusDot && (
+                <ConnectorStatusStrip zeroCostMode={zeroCostMode} />
+              )}
             </button>
           ))}
         </div>
