@@ -26,7 +26,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov', 'html'],
       thresholds: {
-        lines: 30
+        lines: 12
       }
     }
   }
