@@ -269,13 +269,89 @@ export async function isBraveSearchConfigured() {
   }
 }
 
+/**
+ * Frontend-only Brave Search — uses VITE_BRAVE_SEARCH_API_KEY from the Vite env.
+ * Returns a structured result the UI can display directly, or an error object.
+ * Use this when the Rust backend path is unavailable or for direct UI calls.
+ */
+export async function searchBrave(query, count = 10) {
+  const apiKey = import.meta.env.VITE_BRAVE_SEARCH_API_KEY || '';
+  if (!apiKey) {
+    return { success: false, error: 'BRAVE_SEARCH_API_KEY not configured', results: [] };
+  }
+  try {
+    const resp = await fetch(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}`,
+      {
+        headers: {
+          Accept: 'application/json',
+          'X-Subscription-Token': apiKey
+        }
+      }
+    );
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      return {
+        success: false,
+        error: `Brave Search HTTP ${resp.status}${errText ? `: ${errText.slice(0, 120)}` : ''}`,
+        httpStatus: resp.status,
+        results: []
+      };
+    }
+    const data = await resp.json();
+    const results = (data.web?.results || []).map((r) => ({
+      title: r.title || '',
+      url: r.url || '',
+      snippet: r.description || '',
+      source: 'brave'
+    }));
+    return { success: true, results };
+  } catch (error) {
+    return { success: false, error: `Brave Search fetch failed: ${String(error)}`, results: [] };
+  }
+}
+
 async function discoverResearchSourcesBrave({ researchQuestion, sourceType, limit = 8 }) {
-  const results = await invoke('search_brave_sources', {
-    query: researchQuestion,
-    limit,
-    sourceType
-  });
-  if (!Array.isArray(results)) return [];
+  // Try the Rust backend path first (uses server-side BRAVE_SEARCH_API_KEY)
+  let results = null;
+  try {
+    results = await invoke('search_brave_sources', {
+      query: researchQuestion,
+      limit,
+      sourceType
+    });
+  } catch {
+    // Rust path failed — fall through to frontend path below
+  }
+
+  // If the Rust path returned nothing or failed, try the frontend VITE_ key path
+  if (!Array.isArray(results) || results.length === 0) {
+    const frontendResult = await searchBrave(researchQuestion, limit);
+    if (frontendResult.success && frontendResult.results.length > 0) {
+      return frontendResult.results.map((r) => {
+        const source = {
+          url: r.url,
+          type: sourceType || 'official_docs',
+          official: /docs|developer|github|tauri|ollama/i.test(r.url),
+          title: r.title || null,
+          snippet: r.snippet || null
+        };
+        const score = scoreSourceConfidence(source);
+        return {
+          ...source,
+          confidence: score.confidence,
+          confidenceReason: score.reason,
+          verificationState: TRUST_STATES.INFERRED,
+          riskLevel: 'medium',
+          expiresAt: sourceExpiryForType(source.type),
+          dateChecked: new Date().toISOString(),
+          provider: 'brave_search_frontend'
+        };
+      });
+    }
+    return [];
+  }
+
   return results
     .map((row) => {
       const url = String(row.url || '').trim();

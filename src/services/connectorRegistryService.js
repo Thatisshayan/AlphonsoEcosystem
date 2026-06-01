@@ -1103,6 +1103,27 @@ export async function sendChatGptConnectorMessage(text, options = {}) {
   if (!auth.ok) {
     return logUnauthenticatedConnectorRequest('chatgpt', 'paid_connector_send', text, options);
   }
+
+  // Check for missing API key before any network call
+  let envCheck = null;
+  try {
+    envCheck = await invoke('check_env_vars_presence', { names: ['OPENAI_API_KEY'] });
+  } catch {
+    envCheck = null;
+  }
+  if (envCheck && !envCheck['OPENAI_API_KEY']) {
+    appendConnectorAudit('chatgpt', 'send_blocked_missing_key', { text: String(text || '').slice(0, 80) });
+    return {
+      success: false,
+      ok: false,
+      connectorId: 'chatgpt',
+      blocked: true,
+      error: 'API key missing — configure OPENAI_API_KEY in settings',
+      code: 'MISSING_KEY',
+      trust: TRUST_STATES.FAILED
+    };
+  }
+
   const approval = await requireConnectorApproval('chatgpt', 'paid_connector_send', text, options);
   if (!approval.ok) return approval;
   const readiness = await requireConnectorReady('chatgpt', 'paid_connector_send', text, options);
@@ -1117,8 +1138,65 @@ export async function sendChatGptConnectorMessage(text, options = {}) {
       error: gate.reason || 'ChatGPT connector policy gate blocked the action.'
     };
   }
-  const result = await invoke('connector_send_chatgpt', { text });
-  appendConnectorAudit('chatgpt', result?.ok ? 'send_success' : 'send_failed', {
+
+  let result;
+  try {
+    const timeoutMs = options.timeoutMs || 30000;
+    const invokePromise = invoke('connector_send_chatgpt', { text });
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('CONNECTOR_TIMEOUT')), timeoutMs)
+    );
+    result = await Promise.race([invokePromise, timeoutPromise]);
+  } catch (error) {
+    const errMsg = String(error || '');
+    const isTimeout = errMsg === 'CONNECTOR_TIMEOUT' || errMsg.toLowerCase().includes('timeout');
+    const isRateLimit = errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit') || errMsg.toLowerCase().includes('rate_limit');
+    const isMissingKey = errMsg.toLowerCase().includes('api key') || errMsg.toLowerCase().includes('unauthorized') || errMsg.includes('401');
+
+    let userError, code;
+    if (isTimeout) {
+      userError = 'Request timed out after 30s';
+      code = 'TIMEOUT';
+    } else if (isRateLimit) {
+      userError = 'Rate limited — wait 60s and retry';
+      code = 'RATE_LIMITED';
+    } else if (isMissingKey) {
+      userError = 'API key missing — configure OPENAI_API_KEY in settings';
+      code = 'MISSING_KEY';
+    } else {
+      userError = `ChatGPT connector error: ${errMsg}`;
+      code = 'INVOKE_ERROR';
+    }
+
+    appendConnectorAudit('chatgpt', 'send_failed', { error: errMsg, code });
+    return {
+      success: false,
+      ok: false,
+      connectorId: 'chatgpt',
+      blocked: false,
+      error: userError,
+      code,
+      trust: TRUST_STATES.FAILED
+    };
+  }
+
+  // Handle HTTP-level error codes returned by the Rust command
+  if (result && !result.ok) {
+    const httpStatus = result.httpStatus || result.status || null;
+    let userError = result.error || 'ChatGPT connector returned an error.';
+    let code = 'SEND_FAILED';
+    if (httpStatus === 429 || String(result.error || '').includes('429') || String(result.error || '').toLowerCase().includes('rate limit')) {
+      userError = 'Rate limited — wait 60s and retry';
+      code = 'RATE_LIMITED';
+    } else if (httpStatus === 401 || httpStatus === 403) {
+      userError = 'API key missing — configure OPENAI_API_KEY in settings';
+      code = 'MISSING_KEY';
+    }
+    appendConnectorAudit('chatgpt', 'send_failed', { error: userError, code, httpStatus });
+    return { success: false, ok: false, connectorId: 'chatgpt', error: userError, code, httpStatus, trust: TRUST_STATES.FAILED };
+  }
+
+  appendConnectorAudit('chatgpt', 'send_success', {
     target: result?.target || 'chatgpt',
     externalId: result?.externalId || null,
     error: result?.error || null
@@ -1131,6 +1209,27 @@ export async function sendClaudeConnectorMessage(text, options = {}) {
   if (!auth.ok) {
     return logUnauthenticatedConnectorRequest('claude', 'paid_connector_send', text, options);
   }
+
+  // Check for missing API key before any network call
+  let envCheck = null;
+  try {
+    envCheck = await invoke('check_env_vars_presence', { names: ['ANTHROPIC_API_KEY'] });
+  } catch {
+    envCheck = null;
+  }
+  if (envCheck && !envCheck['ANTHROPIC_API_KEY']) {
+    appendConnectorAudit('claude', 'send_blocked_missing_key', { text: String(text || '').slice(0, 80) });
+    return {
+      success: false,
+      ok: false,
+      connectorId: 'claude',
+      blocked: true,
+      error: 'API key missing — configure ANTHROPIC_API_KEY in settings',
+      code: 'MISSING_KEY',
+      trust: TRUST_STATES.FAILED
+    };
+  }
+
   const approval = await requireConnectorApproval('claude', 'paid_connector_send', text, options);
   if (!approval.ok) return approval;
   const readiness = await requireConnectorReady('claude', 'paid_connector_send', text, options);
@@ -1145,8 +1244,65 @@ export async function sendClaudeConnectorMessage(text, options = {}) {
       error: gate.reason || 'Claude connector policy gate blocked the action.'
     };
   }
-  const result = await invoke('connector_send_claude', { text });
-  appendConnectorAudit('claude', result?.ok ? 'send_success' : 'send_failed', {
+
+  let result;
+  try {
+    const timeoutMs = options.timeoutMs || 30000;
+    const invokePromise = invoke('connector_send_claude', { text });
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('CONNECTOR_TIMEOUT')), timeoutMs)
+    );
+    result = await Promise.race([invokePromise, timeoutPromise]);
+  } catch (error) {
+    const errMsg = String(error || '');
+    const isTimeout = errMsg === 'CONNECTOR_TIMEOUT' || errMsg.toLowerCase().includes('timeout');
+    const isRateLimit = errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit') || errMsg.toLowerCase().includes('rate_limit');
+    const isMissingKey = errMsg.toLowerCase().includes('api key') || errMsg.toLowerCase().includes('unauthorized') || errMsg.includes('401');
+
+    let userError, code;
+    if (isTimeout) {
+      userError = 'Request timed out after 30s';
+      code = 'TIMEOUT';
+    } else if (isRateLimit) {
+      userError = 'Rate limited — wait 60s and retry';
+      code = 'RATE_LIMITED';
+    } else if (isMissingKey) {
+      userError = 'API key missing — configure ANTHROPIC_API_KEY in settings';
+      code = 'MISSING_KEY';
+    } else {
+      userError = `Claude connector error: ${errMsg}`;
+      code = 'INVOKE_ERROR';
+    }
+
+    appendConnectorAudit('claude', 'send_failed', { error: errMsg, code });
+    return {
+      success: false,
+      ok: false,
+      connectorId: 'claude',
+      blocked: false,
+      error: userError,
+      code,
+      trust: TRUST_STATES.FAILED
+    };
+  }
+
+  // Handle HTTP-level error codes returned by the Rust command
+  if (result && !result.ok) {
+    const httpStatus = result.httpStatus || result.status || null;
+    let userError = result.error || 'Claude connector returned an error.';
+    let code = 'SEND_FAILED';
+    if (httpStatus === 429 || String(result.error || '').includes('429') || String(result.error || '').toLowerCase().includes('rate limit')) {
+      userError = 'Rate limited — wait 60s and retry';
+      code = 'RATE_LIMITED';
+    } else if (httpStatus === 401 || httpStatus === 403) {
+      userError = 'API key missing — configure ANTHROPIC_API_KEY in settings';
+      code = 'MISSING_KEY';
+    }
+    appendConnectorAudit('claude', 'send_failed', { error: userError, code, httpStatus });
+    return { success: false, ok: false, connectorId: 'claude', error: userError, code, httpStatus, trust: TRUST_STATES.FAILED };
+  }
+
+  appendConnectorAudit('claude', 'send_success', {
     target: result?.target || 'claude',
     externalId: result?.externalId || null,
     error: result?.error || null
