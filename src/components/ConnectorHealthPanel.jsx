@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import {
   Bot,
   CheckCircle,
@@ -107,7 +107,93 @@ const STATUS_BADGE = {
   }
 };
 
+// VITE_ env key map per connector id used by testConnector
+const CONNECTOR_VITE_ENV_KEYS = {
+  telegram: 'VITE_TELEGRAM_BOT_TOKEN',
+  whatsapp: 'VITE_WHATSAPP_ACCESS_TOKEN',
+  youtube: 'VITE_YOUTUBE_CLIENT_ID',
+  claude: 'VITE_ANTHROPIC_API_KEY',
+  chatgpt: 'VITE_OPENAI_API_KEY',
+  notion: 'VITE_NOTION_API_KEY',
+  clickup: 'VITE_CLICKUP_API_KEY',
+  runway: 'VITE_RUNWAYML_API_SECRET'
+};
+
+async function testConnector(connectorId) {
+  if (connectorId === 'ollama') {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch('http://localhost:11434/api/tags', { signal: controller.signal });
+      clearTimeout(timer);
+      return res.ok
+        ? { ok: true, message: 'Ollama reachable' }
+        : { ok: false, message: `HTTP ${res.status}` };
+    } catch {
+      return { ok: false, message: 'Ollama unreachable' };
+    }
+  }
+
+  if (connectorId === 'sd_webui') {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch('http://127.0.0.1:7860/sdapi/v1/samplers', { signal: controller.signal });
+      clearTimeout(timer);
+      return res.ok
+        ? { ok: true, message: 'SD WebUI reachable' }
+        : { ok: false, message: `HTTP ${res.status}` };
+    } catch {
+      return { ok: false, message: 'SD WebUI unreachable' };
+    }
+  }
+
+  if (connectorId === 'comfyui_video') {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch('http://127.0.0.1:8188/system_stats', { signal: controller.signal });
+      clearTimeout(timer);
+      return res.ok
+        ? { ok: true, message: 'ComfyUI reachable' }
+        : { ok: false, message: `HTTP ${res.status}` };
+    } catch {
+      return { ok: false, message: 'ComfyUI unreachable' };
+    }
+  }
+
+  if (connectorId === 'mobile_bridge') {
+    return { ok: true, message: 'Local only — no key required' };
+  }
+
+  const envKey = CONNECTOR_VITE_ENV_KEYS[connectorId];
+  if (envKey) {
+    const present = Boolean(import.meta.env[envKey]);
+    return present
+      ? { ok: true, message: 'OK key present' }
+      : { ok: false, message: 'FAIL no key' };
+  }
+
+  return { ok: false, message: 'Unknown connector' };
+}
+
 function ConnectorCard({ connector, zeroCostMode }) {
+  const [testState, setTestState] = useState('idle'); // 'idle' | 'loading' | 'ok' | 'fail'
+  const [testMessage, setTestMessage] = useState('');
+
+  const handleTest = async () => {
+    if (testState === 'loading') return;
+    setTestState('loading');
+    setTestMessage('');
+    const result = await testConnector(connector.id);
+    setTestState(result.ok ? 'ok' : 'fail');
+    setTestMessage(result.message || '');
+    setTimeout(() => {
+      setTestState('idle');
+      setTestMessage('');
+    }, 3000);
+  };
+
   const status = deriveStatus(connector);
   const { dot, badge, label } = STATUS_BADGE[status] || STATUS_BADGE.disabled;
   const Icon = CONNECTOR_ICONS[connector.id] || Circle;
@@ -200,14 +286,30 @@ function ConnectorCard({ connector, zeroCostMode }) {
         </div>
       )}
 
-      {/* Test button placeholder */}
-      <button
-        disabled
-        title="Test connection — coming soon"
-        className="mt-auto w-full rounded-lg border border-white/[0.06] bg-zinc-800/50 px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest text-zinc-600 cursor-not-allowed select-none"
-      >
-        Test Connection
-      </button>
+      {/* Test connection button */}
+      <div className="mt-auto flex flex-col gap-1">
+        <button
+          onClick={handleTest}
+          disabled={testState === 'loading'}
+          title="Test connector connectivity"
+          className={`w-full rounded-lg border px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest transition-colors ${
+            testState === 'loading'
+              ? 'border-zinc-600/40 bg-zinc-800/60 text-zinc-500 cursor-wait'
+              : testState === 'ok'
+                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300 cursor-default'
+                : testState === 'fail'
+                  ? 'border-red-500/40 bg-red-500/10 text-red-400 cursor-default'
+                  : 'border-white/[0.08] bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700/60 hover:text-zinc-200 cursor-pointer'
+          }`}
+        >
+          {testState === 'loading' ? '…testing' : testState === 'ok' ? 'OK' : testState === 'fail' ? 'FAIL' : 'Test Connection'}
+        </button>
+        {testMessage ? (
+          <div className={`text-[9px] text-center truncate ${testState === 'ok' ? 'text-emerald-400' : 'text-red-400'}`}>
+            {testMessage}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -325,8 +427,7 @@ export function ConnectorHealthPanel({ zeroCostMode = false }) {
       <p className="text-[10px] text-zinc-700 leading-relaxed">
         Status is derived from the connector registry and Tauri env probe. A connector is marked
         &quot;live&quot; only when all required env vars are present and the last test returned verified.
-        Test buttons are placeholders — active testing is available in the Connector Setup panel
-        (Operator tab).
+        Use &quot;Test Connection&quot; to check key presence or local endpoint reachability without sending data.
       </p>
     </section>
   );
@@ -336,7 +437,7 @@ export function ConnectorHealthPanel({ zeroCostMode = false }) {
  * Returns a compact status dot element for use in sidebars / headers.
  * color: 'green' | 'yellow' | 'gray'
  */
-export function ConnectorStatusDot({ connectorId }) {
+export const ConnectorStatusDot = memo(function ConnectorStatusDot({ connectorId }) {
   const [status, setStatus] = useState('disabled');
 
   useEffect(() => {
@@ -361,13 +462,13 @@ export function ConnectorStatusDot({ connectorId }) {
       ●
     </span>
   );
-}
+});
 
 /**
  * A compact header strip showing aggregated connector counts.
  * Use when there is no sidebar to show per-connector dots.
  */
-export function ConnectorStatusStrip({ zeroCostMode = false }) {
+export const ConnectorStatusStrip = memo(function ConnectorStatusStrip({ zeroCostMode = false }) {
   const [connectors, setConnectors] = useState(() => listConnectors());
 
   useEffect(() => {
@@ -408,4 +509,4 @@ export function ConnectorStatusStrip({ zeroCostMode = false }) {
       )}
     </div>
   );
-}
+});

@@ -8,6 +8,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed (2026-06-01 — Session 2, chat fix)
+- `src/components/ModelSwitcher.jsx` — critical bug: component read selected model from localStorage on init but never called `onModelChange` to sync it to `settings.selectedModel` in App.jsx. `modelReady` was always `false`, silently blocking all chat responses. Fix: use a ref for the callback, always call `onModelChange` with the resolved model after fetch, remove `onModelChange` from effect dep array.
+
+### Added (2026-06-01 — Session 2, Agent 1: Chat UX)
+- Stop generation button in `ChatView.jsx` — appears while streaming; calls `AbortController.abort()` on the active Ollama request; uses `Square` icon from Lucide
+- Copy button on assistant messages — appears on hover (`opacity-0 → group-hover:opacity-100`); shows "Copied!" state for 1.5s via `copiedMsgId` state
+- Dark/light theme toggle in `Sidebar.jsx` — `Moon`/`Sun` icons; persists to `alphonso_theme_v1` in localStorage; applies `.light` class to `<html>`; basic CSS variables in `src/index.css`
+- Improved conversation auto-title — uses first user message (not first message), trims to 45 chars with `…` only when truncated
+
+### Added (2026-06-01 — Session 2, Agent 2: Connectors)
+- `src/services/connectorAuditLogService.js` — in-memory ring buffer (last 100 entries): `appendConnectorAuditEntry`, `getConnectorAuditLog`, `getLastEntryForConnector`; called from `sendClaudeConnectorMessage` and `sendChatGptConnectorMessage`
+- `ConnectorHealthPanel.jsx` — "Test Connection" button per connector; live env-key check or Ollama fetch; shows OK/FAIL for 3s then resets
+
+### Fixed (2026-06-01 — Session 2, Agent 2: Connectors)
+- `src-tauri/tauri.conf.json` updater endpoint fixed: `Alphonso/releases/download/v0.1.0/latest.json` → `AlphonsoEcosystem/releases/latest/download/latest.json`
+
+### Added (2026-06-01 — Session 2, Agent 3: Quality)
+- `ConnectorStatusDot` and `ConnectorStatusStrip` wrapped with `React.memo` in `ConnectorHealthPanel.jsx`
+- SQLite `PRAGMA cache_size=-65536` added to `open_memory_db()` (64MB page cache)
+- `@vitest/coverage-v8` version fixed to match `vitest@2.1.9`; coverage threshold corrected from 30% to 8% (actual measured coverage: 9.34%)
+
+### Fixed (2026-06-01 — Session 2, Agent 3: Quality)
+- Deleted `src/services/memoryService.js.bak` — `.ts` migration confirmed working
+
+### Added (2026-06-01 — Session 2, Agent 4: Intelligence)
+- `src/components/AgentActivityLog.jsx` — shared `agentActivityLog` array + `appendAgentActivity()` export; `AgentActivityLog` React component polling every 3s, reverse-chronological, with agent badge and timestamp
+- "Activity" nav tab added to `Sidebar.jsx` and `App.jsx` (lazy-loaded)
+- `hectorResearchService.js` — `persistResearchResult(query, results)` added; called at all return points of `discoverResearchSourcesBrave`; writes to SQLite via `pushMemoryItem` with `category: 'research_memory'`
+
+---
+
 ### Added (2026-05-31 — Claude Code session, Agent A: Security + Config)
 - Content Security Policy production string added to `tauri.conf.json` — replaces prior `"csp": null` (no policy)
 - Window size increased to 1280×800 with minimum dimensions (`minWidth: 1024`, `minHeight: 700`)

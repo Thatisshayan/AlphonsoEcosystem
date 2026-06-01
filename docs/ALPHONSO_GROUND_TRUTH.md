@@ -1,5 +1,5 @@
 # ALPHONSO — Agent Ground Truth & Shared Context
-**Last verified:** 2026-05-31 — FINAL SESSION STATE, all 8 agents + autonomous mode complete  
+**Last verified:** 2026-06-01 — Session 2 complete, chat fix + 4 parallel agents done  
 **Verified by:** Claude Code (cross-referenced audit report, handoff package 2026-05-13, and live filesystem inspection)  
 **Purpose:** Single source of truth for any agent, Claude session, or human operator starting fresh. Read this before reading any other document. If this file conflicts with an audit report or summary doc, trust this file and update the other.
 
@@ -251,7 +251,7 @@ These are confirmed gaps as of 2026-05-31. Any agent working on these areas shou
 - [ ] **`lib.rs` is ~7,200 lines** — module splitting not yet done; deferred (too large for one session)
 - [x] **Rust unit tests added** — 14 tests in `#[cfg(test)] mod tests` covering `allowed_program`, `plugin_blocked_token_present`, `validate_plugin_extra_args`, `trim_trailing_slashes`, `wal_pragma_applies_on_in_memory_db`, `to_hex` — all passing (verified `cargo test` 2026-05-31, Agent D)
 - [x] **Shared `reqwest::Client`** — built at startup, registered via `.manage()`, used by `connector_poll_telegram`, `connector_send_telegram`, `connector_send_chatgpt`, `connector_send_claude` (2026-05-31, Agent D). Remaining connectors use specialized timeouts and were intentionally left.
-- [x] **SQLite WAL mode** — `PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;` added to `open_memory_db()` at ~line 1003, before schema initialization (2026-05-31, Agent D)
+- [x] **SQLite WAL mode + cache** — `PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-65536;` in `open_memory_db()` — 64MB page cache added (2026-06-01, Agent 3)
 - [x] **`unwrap()` audit done** — 1 runtime `.unwrap()` found (~line 5859 in `fetch_research_sources`), replaced with safe `match` + `continue`. Two startup-only `.expect()` calls intentionally kept.
 
 ### FRONTEND
@@ -275,7 +275,7 @@ These are confirmed gaps as of 2026-05-31. Any agent working on these areas shou
 - [x] **Model switcher UI** — `src/components/ModelSwitcher.jsx` created. Fetches Ollama `/api/tags`, shows dropdown in ChatView header, persists to `alphonso_selected_model_v1`, shows "Ollama offline" pill if unreachable (2026-05-31, Agent F)
 - [x] **Connector health dashboard** — `ConnectorHealthPanel.jsx` with status for all 11 connectors (2026-05-31, Agent C)
 - [ ] **WhatsApp Cloud inbound webhook** — normalizer exists, but hosted endpoint + signature validation not deployed
-- [ ] **Hector research sessions not persisted** — results are ephemeral, not saved to SQLite
+- [x] **Hector research persistence** — `persistResearchResult(query, results)` added to `hectorResearchService.js`; called at all exit points of `discoverResearchSourcesBrave`; writes via `pushMemoryItem` with `category: 'research_memory'` (2026-06-01, Agent 4)
 - [ ] **True streaming for Claude/ChatGPT** — currently one-shot invoke; SSE/streaming path not yet implemented
 
 ### INFRASTRUCTURE & DOCS
@@ -302,7 +302,7 @@ These are confirmed gaps as of 2026-05-31. Any agent working on these areas shou
 - [x] **Sidebar connector status** — `src/components/Sidebar.jsx` updated with "Connectors" nav item + inline `ConnectorStatusStrip` showing live/missing/disabled counts (2026-05-31, Agent C)
 - [x] **Approval modal improved** — `src/components/ApprovalModal.jsx` now shows connector badge, colored risk level (high/medium/low), irreversibility warning banner, red confirm button for high-risk actions — backward compatible with existing `label` prop (2026-05-31, Agent C)
 - [ ] **No onboarding flow** — first-launch experience does not guide through Ollama check → model download → connector setup
-- [ ] **No dark/light theme toggle** — hardcoded dark (`#09090b`)
+- [x] **Dark/light theme toggle** — `Sidebar.jsx` has Moon/Sun toggle persisting to `alphonso_theme_v1`; applies `.light` class to `<html>`; basic CSS variables in `index.css` (2026-06-01, Agent 1). Full Tailwind token propagation is a future task.
 - [ ] **Toast notifications** — `ToastProvider` already mounted in `main.jsx`; inbound message toasts already wired in `App.jsx` — no gap here
 
 ---
@@ -326,7 +326,9 @@ Before writing any new service or feature, verify it does not already exist:
 - **Connector docs** → `docs/CONNECTORS.md`
 - **Changelog** → `docs/CHANGELOG.md` — add to this, don't create a new one
 - **Dependabot** → `.github/dependabot.yml` already exists
-- **ModelSwitcher** → `src/components/ModelSwitcher.jsx` — Ollama model dropdown, already mounted in ChatView
+- **ModelSwitcher** → `src/components/ModelSwitcher.jsx` — Ollama model dropdown, already mounted in ChatView. Fixed 2026-06-01: now syncs model to parent on mount (was blocking all chat responses)
+- **AgentActivityLog** → `src/components/AgentActivityLog.jsx` — activity timeline tab, auto-refreshes every 3s
+- **connectorAuditLogService** → `src/services/connectorAuditLogService.js` — ring buffer for last 100 connector call results
 - **Brave Search** → already wired in `hectorResearchService.js` with Rust + VITE_ fallback
 - **Auth scripts** → `auth:youtube`, `auth:meta`, `auth:outlook` already exist
 - **Desktop preflight/verify** → `verify:desktop:preflight`, `verify:desktop` already exist

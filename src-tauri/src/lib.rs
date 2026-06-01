@@ -1002,7 +1002,7 @@ fn open_memory_db(app: &tauri::AppHandle) -> Result<(Connection, PathBuf), Strin
   let conn = Connection::open(&path).map_err(|error| error.to_string())?;
   // WAL mode: allows concurrent reads during writes, prevents UI freeze on memory writes.
   // PRAGMA synchronous=NORMAL is safe with WAL and gives a solid durability/performance balance.
-  conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
+  conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-65536;")
     .map_err(|error| format!("WAL pragma failed: {}", error))?;
   initialize_memory_schema(&conn)?;
   Ok((conn, path))

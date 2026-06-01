@@ -7,6 +7,7 @@ import { createJoseCommandRoute } from './joseCommandRouterService';
 import { evaluatePolicyGate } from './policyEnforcementService';
 import { appendOrchestrationReceipt } from './orchestrationReceiptService';
 import { requireApproval } from './approval/approvalService';
+import { appendConnectorAuditEntry } from './connectorAuditLogService';
 
 const CONNECTOR_KEY = 'alphonso_connector_registry_v2';
 const CONNECTOR_AUDIT_KEY = 'alphonso_connector_audit_v2';
@@ -1201,6 +1202,7 @@ export async function sendChatGptConnectorMessage(text, options = {}) {
     externalId: result?.externalId || null,
     error: result?.error || null
   });
+  appendConnectorAuditEntry({ connectorId: 'chatgpt', ok: Boolean(result?.ok), latencyMs: null, errorCode: null });
   return result;
 }
 
@@ -1307,6 +1309,7 @@ export async function sendClaudeConnectorMessage(text, options = {}) {
     externalId: result?.externalId || null,
     error: result?.error || null
   });
+  appendConnectorAuditEntry({ connectorId: 'claude', ok: Boolean(result?.ok), latencyMs: null, errorCode: null });
   return result;
 }
 

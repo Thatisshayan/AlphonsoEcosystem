@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, Download, History, Paperclip, Search, Send, Trash2, X } from 'lucide-react';
+import { Bot, Copy, Download, History, Paperclip, Search, Send, Square, Trash2, X } from 'lucide-react';
 import { getStorage, setStorage } from '../lib/appStorage';
 import { nextMsgId, CHAT_ASSISTANT_PROMPT, shouldRouteThroughJose } from '../lib/chatUtils';
 import { isJoseIntakeCommand, runJoseCommandExecutionPipeline } from '../services/joseExecutionEngineService';
@@ -36,8 +36,10 @@ export function ChatView({
   const [attachedFile, setAttachedFile] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [copiedMsgId, setCopiedMsgId] = useState(null);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const abortRef = useRef(null);
 
   const handleFileAttach = (event) => {
     const file = event.target.files?.[0];
@@ -81,12 +83,16 @@ export function ChatView({
     if (messages.length > 0) {
       setStorage(`alphonso_messages_${activeChatId}`, messages);
       persistChatMessages(activeChatId, messages);
-      setConversations((current) => current.map((conversation) =>
-        conversation.id === activeChatId &&
-        (conversation.title === 'Unsaved Chat' || conversation.title === 'New Chat Session')
-          ? { ...conversation, title: `${messages[0].content.slice(0, 30)}...` }
-          : conversation
-      ));
+      setConversations((current) => current.map((conversation) => {
+        if (
+          conversation.id !== activeChatId ||
+          !(conversation.title === 'Unsaved Chat' || conversation.title === 'New Chat Session')
+        ) return conversation;
+        const firstUser = messages.find((m) => m.role === 'user');
+        const text = firstUser ? firstUser.content : messages[0].content;
+        const title = text.length > 45 ? `${text.slice(0, 45)}…` : text;
+        return { ...conversation, title };
+      }));
     }
   }, [messages, activeChatId, setConversations]);
 
@@ -179,11 +185,13 @@ export function ChatView({
     const assistantMsgId = nextMsgId();
     setMessages((current) => [...current, { id: assistantMsgId, role: 'assistant', content: '' }]);
 
+    abortRef.current = new AbortController();
     try {
       await generateOllamaStream({
         endpoint: settings.endpoint,
         model: settings.selectedModel,
         prompt: `${CHAT_ASSISTANT_PROMPT}\n\nUser request:\n${userMessage.content}`,
+        signal: abortRef.current.signal,
         onToken: (_tok, full) => {
           setMessages((current) => current.map((msg) =>
             msg.id === assistantMsgId ? { ...msg, content: full } : msg
@@ -324,13 +332,28 @@ export function ChatView({
               </div>
             )}
             <div className={`flex flex-col gap-1.5 ${message.role === 'user' ? 'items-end' : 'items-start'} max-w-[90%]`}>
-              <div className={`px-4 py-3 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap border shadow-sm ${
-                message.role === 'user'
-                  ? 'bg-zinc-800 text-zinc-100 border-white/5 rounded-tr-sm'
-                  : `bg-zinc-900/30 border-white/[0.05] rounded-tl-sm ${message.isError ? 'text-red-300 border-red-500/20' : 'text-zinc-300'}`
-              }`}>
-                {message.content}
-              </div>
+              {message.role === 'assistant' ? (
+                <div className="relative group">
+                  <div className={`px-4 py-3 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap border shadow-sm bg-zinc-900/30 border-white/[0.05] rounded-tl-sm ${message.isError ? 'text-red-300 border-red-500/20' : 'text-zinc-300'}`}>
+                    {message.content}
+                  </div>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(message.content);
+                      setCopiedMsgId(message.id);
+                      setTimeout(() => setCopiedMsgId((id) => id === message.id ? null : id), 1500);
+                    }}
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800"
+                    title={copiedMsgId === message.id ? 'Copied!' : 'Copy message'}
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="px-4 py-3 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap border shadow-sm bg-zinc-800 text-zinc-100 border-white/5 rounded-tr-sm">
+                  {message.content}
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -396,6 +419,15 @@ export function ChatView({
           </div>
 
           <div className="absolute bottom-3 right-3 flex items-center gap-2">
+            {isGenerating && (
+              <button
+                onClick={() => abortRef.current?.abort()}
+                className="h-9 px-4 rounded-xl flex items-center gap-2 font-bold text-xs uppercase tracking-widest bg-zinc-800 text-red-400 hover:bg-red-500/10 border border-red-500/20 transition-all"
+              >
+                <Square className="w-3.5 h-3.5" />
+                Stop
+              </button>
+            )}
             <button
               onClick={handleSend}
               disabled={isGenerating || !inputValue.trim()}

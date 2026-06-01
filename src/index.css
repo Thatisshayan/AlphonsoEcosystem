@@ -1,11 +1,38 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
 
 body {
   margin: 0;
-  font-family: Inter, system-ui, sans-serif;
+  font-family: Manrope, Inter, system-ui, sans-serif;
   background: #09090b;
+}
+
+.alphonso-site {
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(circle at 20% 10%, #78350f 0%, rgba(120, 53, 15, 0) 45%),
+    radial-gradient(circle at 80% 15%, #164e63 0%, rgba(22, 78, 99, 0) 42%),
+    linear-gradient(150deg, #050505 0%, #111111 45%, #0a0a0a 100%);
+}
+
+.alphonso-site__bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(circle at center, black 35%, transparent 100%);
+}
+
+.alphonso-site__panel {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
+  backdrop-filter: blur(16px);
+  padding: 18px;
 }
 
 @keyframes alphonso-breathe {
@@ -270,4 +297,13 @@ body {
 
 .theme-minimal-runtime main {
   background: rgba(9, 9, 11, 0.9);
+}
+
+.light {
+  --bg-primary: #f4f4f5;
+  --bg-secondary: #e4e4e7;
+}
+
+.light body {
+  background: var(--bg-primary);
 }

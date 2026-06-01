@@ -328,7 +328,7 @@ async function discoverResearchSourcesBrave({ researchQuestion, sourceType, limi
   if (!Array.isArray(results) || results.length === 0) {
     const frontendResult = await searchBrave(researchQuestion, limit);
     if (frontendResult.success && frontendResult.results.length > 0) {
-      return frontendResult.results.map((r) => {
+      const mapped = frontendResult.results.map((r) => {
         const source = {
           url: r.url,
           type: sourceType || 'official_docs',
@@ -348,11 +348,14 @@ async function discoverResearchSourcesBrave({ researchQuestion, sourceType, limi
           provider: 'brave_search_frontend'
         };
       });
+      persistResearchResult(researchQuestion, mapped);
+      return mapped;
     }
+    persistResearchResult(researchQuestion, []);
     return [];
   }
 
-  return results
+  const mapped = results
     .map((row) => {
       const url = String(row.url || '').trim();
       if (!url) return null;
@@ -376,6 +379,8 @@ async function discoverResearchSourcesBrave({ researchQuestion, sourceType, limi
       };
     })
     .filter(Boolean);
+  persistResearchResult(researchQuestion, mapped);
+  return mapped;
 }
 
 async function discoverResearchSourcesWithFailover({
@@ -522,6 +527,28 @@ export function recordHectorActivity(type, details = {}) {
   rows.push(activity);
   writeRows(ACTIVITY_KEY, rows);
   return activity;
+}
+
+export function persistResearchResult(query, results) {
+  const resultCount = Array.isArray(results) ? results.length : 0;
+  pushMemoryItem({
+    title: `Hector research: ${String(query || '').slice(0, 120)}`,
+    category: 'research_memory',
+    content: {
+      query,
+      resultCount,
+      results: Array.isArray(results) ? results.slice(0, 20) : [],
+      agent: 'hector',
+      category: 'research',
+      persistedAtMs: timestampMs()
+    },
+    source: 'hector-brave-search',
+    sourceAgent: AGENTS.HECTOR,
+    confidence: resultCount > 0 ? TRUST_STATES.INFERRED : TRUST_STATES.UNVERIFIED,
+    verificationState: TRUST_STATES.INFERRED,
+    expiresAt: sourceExpiryForType('public_web'),
+    expiryRule: 'public_web'
+  });
 }
 
 export function createResearchDraft({

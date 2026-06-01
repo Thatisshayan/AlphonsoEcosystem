@@ -4,6 +4,7 @@ import App from './App'
 import './index.css'
 import { ToastProvider } from './components/ToastProvider'
 import { startNativeSelfDevelopmentAutostart } from './services/nativeSelfDevelopmentAutostartService'
+import MarketingLandingPage from './components/MarketingLandingPage'
 
 const CRASH_LOG_KEY = 'alphonso_crash_log_v1';
 const MAX_CRASH_ENTRIES = 20;
@@ -63,13 +64,19 @@ window.setTimeout(() => {
 }, 1000)
 
 const root = ReactDOM.createRoot(document.getElementById('root'))
+const pathname = window.location.pathname.toLowerCase();
+const isMarketingPage = pathname === '/website' || pathname === '/landing';
 
 root.render(
   <React.StrictMode>
     <BootBoundary>
-      <ToastProvider>
-        <App />
-      </ToastProvider>
+      {isMarketingPage ? (
+        <MarketingLandingPage />
+      ) : (
+        <ToastProvider>
+          <App />
+        </ToastProvider>
+      )}
     </BootBoundary>
   </React.StrictMode>,
 )

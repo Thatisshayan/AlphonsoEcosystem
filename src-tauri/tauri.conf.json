@@ -54,7 +54,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUyN0I0OUQ0RTE1MTdBNEUKUldST2VsSGgxRWw3NHN6OERzd004Zk1NOUs0R1puL2tmd1FUUWVpOXIrdnczbmxPYTllVC9WMlAK",
       "endpoints": [
-        "https://github.com/Thatisshayan/Alphonso/releases/download/v0.1.0/latest.json"
+        "https://github.com/Thatisshayan/AlphonsoEcosystem/releases/latest/download/latest.json"
       ]
     }
   }

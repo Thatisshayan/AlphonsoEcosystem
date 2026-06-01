@@ -94,6 +94,7 @@ const AgentDock = lazy(() => import('./components/AgentDock').then((mod) => ({ d
 const MicrophoneStatus = lazy(() => import('./components/MicrophoneStatus').then((mod) => ({ default: mod.MicrophoneStatus })));
 const SettingsView = lazy(() => import('./components/SettingsView').then((mod) => ({ default: mod.SettingsView })));
 const RightPanel = lazy(() => import('./components/RightPanel').then((mod) => ({ default: mod.RightPanel })));
+const AgentActivityLog = lazy(() => import('./components/AgentActivityLog').then((mod) => ({ default: mod.AgentActivityLog })));
 
 const INITIAL_CONVERSATION_ID = 'default-session';
 const COACH_LAYOUT_KEY = 'alphonso_coach_layout_v1';
@@ -2318,6 +2319,11 @@ export default function App() {
                     <ConnectorHealthPanel zeroCostMode={settings.zeroCostMode} />
                   </React.Suspense>
                 </div>
+              )}
+              {activeTab === 'activity' && (
+                <Suspense fallback={null}>
+                  <AgentActivityLog />
+                </Suspense>
               )}
             </Suspense>
             </ViewErrorBoundary>
