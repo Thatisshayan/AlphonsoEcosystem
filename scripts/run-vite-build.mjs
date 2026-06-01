@@ -3,8 +3,15 @@ import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const root = process.cwd();
+const nodeMajor = Number.parseInt(process.versions.node.split('.')[0] || '0', 10);
 
 const MAIN_CHUNK_BUDGET_BYTES = 500_000;
+
+if (nodeMajor >= 25) {
+  console.warn(
+    `[build warning] Detected Node ${process.versions.node}. Vite 5 projects are usually validated on Node 18/20/22 LTS.`
+  );
+}
 
 async function enforceMainChunkBudget() {
   const assetsDir = join(root, 'dist', 'assets');

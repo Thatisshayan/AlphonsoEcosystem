@@ -19,6 +19,13 @@ if (sanitizedNodeOptions) {
   delete process.env.NODE_OPTIONS;
 }
 
+const sanitizedNpmNodeOptions = sanitizeNodeOptions(process.env.npm_config_node_options || '');
+if (sanitizedNpmNodeOptions) {
+  process.env.npm_config_node_options = sanitizedNpmNodeOptions;
+} else {
+  delete process.env.npm_config_node_options;
+}
+
 const filters = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
 const runMode = process.argv.includes('--watch') ? 'watch' : 'run';
 
