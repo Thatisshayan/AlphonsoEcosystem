@@ -13,12 +13,13 @@
     "windows": [
       {
         "title": "Alphonso",
-        "width": 800,
-        "height": 600,
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 700,
         "resizable": true,
         "fullscreen": false,
-        "backgroundColor": "#09090b",
-        "additionalBrowserArgs": "--disable-gpu --disable-gpu-compositing --use-angle=swiftshader"
+        "backgroundColor": "#09090b"
       }
     ],
     "trayIcon": {
@@ -28,7 +29,7 @@
       "showMenuOnLeftClick": false
     },
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src 'self' http://localhost:* https://api.anthropic.com https://api.openai.com https://api.telegram.org https://graph.facebook.com https://api.clickup.com https://api.notion.com https://www.googleapis.com https:; img-src 'self' data: blob: https:; media-src 'self' blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:;"
     }
   },
   "bundle": {
